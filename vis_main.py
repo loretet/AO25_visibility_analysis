@@ -223,65 +223,8 @@ print(results_df.to_string(float_format="%.3f"))
 bs_ens = vf.compute_brier_score(prob_fog, df_eval['obs_event'])
 print(f"Ensemble Brier Score: {bs_ens:.4f}")
 
-#%% Check fog events in [START_DATE , END_DATE]
-
-# Plot observations and models
-fig, ax = plt.subplots(figsize=(16, 8))
-ax.plot(df_eval.index, df_eval['obs_vis'], label='Observed Vis (km)', color='black')
-for model_name, model_series in model_data.items():
-    if model_name.startswith("Ens_"):
-        ax.plot(model_series.index, model_series, label=f'{model_name}', lw=0.7)
-
-# Fog threshold
-ax.axhline(FOG_THRESH, color='red', linestyle='--', label='Fog Threshold')
-
-# Highlight TAF valid times
-ax.fill_between(
-    df_eval.index,
-    0,
-    df_eval['obs_vis'].max(),
-    where=~df_eval['is_valid'],
-    color='lightgray',
-    alpha=0.5,
-    label='No TAF'
-)
-
-# Highlight fog events (ONLY within mask)
-fog_masked = (df_eval['obs_vis'] < FOG_THRESH) & (df_eval['is_valid'])
-
-ax.scatter(
-    df_eval.index[fog_masked],
-    df_eval['obs_vis'][fog_masked],
-    color='red',
-    s=60,
-    label='Fog events (used in metrics)',
-    zorder=5
-)
-
-ax.set_title("Visibility with Fog Events and TAF Validity Window")
-ax.set_ylabel("Visibility (km)")
-ax.set_ylim(-0.1,2)
-ax.legend(prop=dict(size=7),ncol=2,loc="upper left")
-ax.grid(alpha=0.3)
-
-if debug:
-    model = event_lib['IFS']
-
-    # Find where obs = event
-    obs_events = truth[truth == True]
-
-    print("Checking each observed fog event:\n")
-
-    for t in obs_events.index:
-        print(f"Time: {t}")
-        print("Obs:", truth.loc[t])
-        
-        if t in model.index:
-            print("Model:", model.loc[t])
-        else:
-            print("Model: MISSING TIMESTAMP")
-        
-        print("-" * 30)
+# 5. Check fog events in [START_DATE , END_DATE]
+vf.plot_fog_events_analysis(df_eval, model_data, FOG_THRESH, event_lib, truth, debug)
 
 #%% PERFORMANCE VISUAL ANALYSIS
 
