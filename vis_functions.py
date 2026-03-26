@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
 import numpy as np
+from metar_taf_parser.parser.parser import TAFParser
 from sklearn.calibration import calibration_curve
 
 def TAF_parser(taf_string):
@@ -18,8 +19,6 @@ def TAF_parser(taf_string):
     taf : metar_taf_parser.model.taf.Taf
         A structured TAF object containing visibility and trend information.
     """
-    from metar_taf_parser.parser.parser import TAFParser
-
     clean_taf = taf_string.strip()
     if not clean_taf.startswith('TAF'):
         clean_taf = 'TAF ' + clean_taf
@@ -539,10 +538,8 @@ def plot_ens_meteogram(prob_df, model_dict, vis_obs, start_date, end_date, resam
 
     Returns
     -------
-    fig : matplotlib.figure.Figure
-        Figure object containing the meteogram.
-    ax : matplotlib.axes.Axes
-        Axes object for further customization.
+    None
+        Displays matplotlib figure with meteogram
     """
     start_date, end_date = str(start_date), str(end_date)
     p_sub = prob_df.loc[start_date:end_date].resample(resample_freq).mean()
@@ -591,9 +588,7 @@ def plot_ens_meteogram(prob_df, model_dict, vis_obs, start_date, end_date, resam
     ax.legend(bbox_to_anchor=(1.01, 1), loc='upper left', title="Visibility Bins", frameon=False)
     for day in pd.date_range(start_date, end_date, freq='D'):
         ax.axvline(day, c='k', alpha=0.3, lw=0.5)
-        
     plt.tight_layout()
-    plt.show()
     
 def plot_performance_diagram(pods, fars, labels, colors=None):
     """
@@ -798,7 +793,6 @@ def plot_ensemble_spaghetti(ens_xr, obs_series, start_t, end_t, threshold=0.8):
     Individual ensemble members are plotted as thin, semi-transparent gray lines.
     The ensemble median is overlaid in black, and observations in red.
     """
-    import matplotlib.pyplot as plt
     
     # Slice data for the window
     window_ens = ens_xr.sel(time=slice(start_t, end_t))
@@ -926,8 +920,6 @@ def plot_talagrand_histogram(ens_data, obs_data):
     The rank is defined as the number of ensemble members with values less than 
     the observation. A uniform distribution across all ranks indicates good calibration.
     """
-    import matplotlib.pyplot as plt
-    import numpy as np
 
     # 1. Find the intersection of timestamps where both have valid data
     ens_times = ens_data.time.to_index()
