@@ -5,16 +5,12 @@
 # by Authors...
 
 #%% Imports
-from datetime import datetime
-import re 
 import vis_functions as vf
 import importlib         # look for changes in vis_functions without
 importlib.reload(vf)     # having to reload the kernel
 import numpy as np
-import matplotlib.pyplot as plt
 import xarray as xr
 import pandas as pd
-import seaborn as sns
 
 #%% PREPROCESS DATASETS
 # Flags:
@@ -230,7 +226,7 @@ bs_ens = vf.compute_brier_score(prob_fog, df_eval['obs_event'])
 print(f"Ensemble Brier Score: {bs_ens:.4f}")
 
 # 5. Check fog events in [START_DATE , END_DATE]
-vf.plot_fog_events_analysis(df_eval, model_data, FOG_THRESH, event_lib, truth, debug)
+vf.plot_fog_events(df_eval, model_data, FOG_THRESH, event_lib, truth, debug)
 
 #%% PERFORMANCE VISUAL ANALYSIS
 
@@ -292,6 +288,5 @@ vf.plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, FOG_THRESH)
 
 # 5. Ensemble spaghetti
 vf.plot_ensemble_spaghetti(ens_aligned, df_eval['obs_vis'], '2025-08-25', '2025-08-27')
-
 
 # %%

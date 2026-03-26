@@ -4,6 +4,8 @@
 # Scripts for "Paper title"
 # by Authors...
 
+# Disclaimer: AI was used to add function headers and edit some snippets
+#             of code (mostly related to plotting).
 #%% Imports
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -14,7 +16,7 @@ from sklearn.calibration import calibration_curve
 import seaborn as sns
 
 #%% Functions
-def TAF_parser(taf_string,debug):
+def TAF_parser(taf_string, debug):
     """
     Parses a raw TAF string into a structured TAF object.
 
