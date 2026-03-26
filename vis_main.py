@@ -12,7 +12,7 @@ import seaborn as sns
 
 #%% PREPROCESS DATASETS
 flag = 0
-
+debug = 0
 # Rename the different visibilities from the original diagnostic datasets to "vis"
 # to be used with the functions in the script.
 if flag:
@@ -158,7 +158,8 @@ if debug:
 #%% MODEL EVALUATION
 
 # 1. Get the raw events (Initial 24h baseline for all)
-truth_full, event_lib = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis'], FOG_THRESH)
+truth_full, event_lib = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis'],
+                                                   p_thresh=FC_THRESH, fog_thresh=FOG_THRESH)
 
 # Define the Forecaster's active window mask
 mask = (df_eval['is_valid'] == True)
@@ -223,6 +224,66 @@ print(results_df.to_string(float_format="%.3f"))
 bs_ens = vf.compute_brier_score(prob_fog, df_eval['obs_event'])
 print(f"Ensemble Brier Score: {bs_ens:.4f}")
 
+#%% Check fog events in [START_DATE , END_DATE]
+
+fig, ax = plt.subplots(figsize=(16, 8))
+
+# Plot observations and models
+ax.plot(df_eval.index, df_eval['obs_vis'], label='Observed Vis (km)', color='black')
+for model_name, model_series in model_data.items():
+    if model_name.startswith("Ens_"):
+        ax.plot(model_series.index, model_series, label=f'{model_name}', lw=0.7)
+
+# Fog threshold
+ax.axhline(FOG_THRESH, color='red', linestyle='--', label='Fog Threshold')
+
+# Highlight TAF valid times
+ax.fill_between(
+    df_eval.index,
+    0,
+    df_eval['obs_vis'].max(),
+    where=~df_eval['is_valid'],
+    color='lightgray',
+    alpha=0.5,
+    label='No TAF'
+)
+
+# Highlight fog events (ONLY within mask)
+fog_masked = (df_eval['obs_vis'] < FOG_THRESH) & (df_eval['is_valid'])
+
+ax.scatter(
+    df_eval.index[fog_masked],
+    df_eval['obs_vis'][fog_masked],
+    color='red',
+    s=60,
+    label='Fog events (used in metrics)',
+    zorder=5
+)
+
+ax.set_title("Visibility with Fog Events and TAF Validity Window")
+ax.set_ylabel("Visibility (km)")
+ax.set_ylim(-0.1,2)
+ax.legend(prop=dict(size=7),ncol=2,loc="upper left")
+ax.grid(alpha=0.3)
+
+if debug:
+    model = event_lib['IFS']
+
+    # Find where obs = event
+    obs_events = truth[truth == True]
+
+    print("Checking each observed fog event:\n")
+
+    for t in obs_events.index:
+        print(f"Time: {t}")
+        print("Obs:", truth.loc[t])
+        
+        if t in model.index:
+            print("Model:", model.loc[t])
+        else:
+            print("Model: MISSING TIMESTAMP")
+        
+        print("-" * 30)
 
 #%% PERFORMANCE VISUAL ANALYSIS
 
@@ -237,7 +298,7 @@ vf.plot_performance_diagram(
 )
 
 # 2. Visual Summary Bar Chart
-vf.plot_metrics_summary(results_df)
+# vf.plot_metrics_summary(results_df)
 
 # 3. Meteogram for a specific interesting window
 plot_start, plot_end = '2025-08-20', '2025-08-30'
@@ -268,6 +329,153 @@ vf.plot_talagrand_histogram(ens_aligned, df_eval['obs_vis'])
 vf.plot_taf_components(df_eval)
 
 # 2. Zoom into a specific event (e.g., a fog episode on Aug 25)
-vf.plot_taf_window(df_eval, FOG_THRESH, '2025-08-11', '2025-08-11')
+vf.plot_taf_window(df_eval, FOG_THRESH, '2025-08-24', '2025-08-24')
+#%%
+# 3. Visual summary with TAF uncertainty
+vf.plot_vis_summary(df_eval, df_eval['obs_vis'], model_data["IFS"], model_data["lowLvlMean"], FOG_THRESH, start_date="2025-08-30", end_date="2025-08-30")
+
+
+##########################################################################
+#%%#######################################################################
+
+##########################################################################
+
+#%% WORKSHOP IN LEEDS
+
+#%% Plot PDFs of observations
+
+START_DATE = '2025-08-12 01:00'
+END_DATE = '2025-09-16 00:00'
+TIME_RES = 'h'  # Analysis resolution (minutes, hours..)
+time_vec = pd.date_range(start=START_DATE, end=END_DATE, freq=TIME_RES)
+
+ds_obs2 = xr.open_dataset(OBS_PATH, decode_timedelta=True)
+
+period1_bounds = ('2025-08-12 00:00', '2025-08-16 12:00')
+period2_bounds = ('2025-08-16 13:00', '2025-09-03 00:00')
+period3_bounds = ('2025-09-03 01:00', '2025-09-16 00:00')
+
+# Update your loop list
+periods = [
+    (period1_bounds, 'Period 1', 'k'),
+    (period2_bounds, 'Period 2', 'r'),
+    (period3_bounds, 'Period 3', 'b')
+]
+
+def filter_obs(ds_obs, var, time_vec):
+    data = ds_obs[var].to_series().reindex(time_vec, method='nearest', tolerance='5min') * 1e-3
+    mask = (data < FOG_THRESH).astype(bool)
+    return data.loc[mask]
+
+m01_quant = filter_obs(ds_obs2, "visas_1min", time_vec)
+m05_quant = filter_obs(ds_obs2, "visas_5min", time_vec)
+m10_quant = filter_obs(ds_obs2, "visas_10min", time_vec)
+m15_quant = filter_obs(ds_obs2, "visas_15min", time_vec)
+med_quant = filter_obs(ds_obs2, "visas_median", time_vec)
+
+fig,axs = plt.subplots(2,3,figsize=(16, 10))
+axs = axs.flatten()
+axs1 = axs[:3]
+axs2 = axs[3:]
+
+plt.title("Observations PDF - Different regimes")
+for i, (bounds, period_name, color) in enumerate(periods):    
+    p_start, p_end = bounds
+    m01_slice = m01_quant.loc[p_start:p_end]
+    m05_slice = m05_quant.loc[p_start:p_end]
+    m10_slice = m10_quant.loc[p_start:p_end]
+    m15_slice = m15_quant.loc[p_start:p_end]
+
+    sns.histplot(m01_slice, stat="density",element="poly", label="1 min quantile",  bins=30, kde=False, fill=False, ax=axs1[i])
+    sns.histplot(m05_slice, stat="density",element="poly", label="5 min quantile",  bins=30, kde=False, fill=False, linestyle="--", ax=axs1[i])
+    sns.histplot(m10_slice, stat="density",element="poly", label="10 min quantile", bins=30, kde=False, fill=False, linestyle=":", ax=axs1[i])
+    sns.histplot(m15_slice, stat="density",element="poly", label="15 min quantile", bins=30, kde=False, fill=False, linestyle="-.", ax=axs1[i])
+    axs1[i].set_title(f"Observations PDF - {period_name}")
+    axs1[i].axvspan(0,FOG_THRESH, color='yellow', alpha=0.4)
+    [axs1[i].axhline(0.05*j,ls="--",lw=0.8,c="k") for j in [1,3,5]]
+    axs1[i].set_xlabel("Visibility (km)")
+    axs1[i].set_ylabel("Prob. density")
+    # axs[i].set_ylim(top=0.25,bottom=0)
+    axs1[i].set_xlim(left=0,right=20)
+for i, (bounds, period_name, color) in enumerate(periods):    
+    axs2[i].scatter(np.sort(m01_slice), np.linspace(0, 100, len(m01_slice)), label="1 min quantile",s=5)
+    axs2[i].scatter(np.sort(m05_slice), np.linspace(0, 100, len(m05_slice)), label="5 min quantile",s=5)
+    axs2[i].scatter(np.sort(m10_slice), np.linspace(0, 100, len(m10_slice)), label="10 min quantile",s=5)
+    axs2[i].scatter(np.sort(m15_slice), np.linspace(0, 100, len(m15_slice)), label="15 min quantile",s=5)
+    axs2[i].set_title(f"Observations CDF - {period_name}")
+    axs2[i].axvspan(0, FOG_THRESH, color='yellow', alpha=0.4)
+    axs2[i].set_xlabel("Visibility (km)")
+    axs2[i].set_ylabel("Cumulative Probability")
+    axs2[i].set_xlim(left=0, right=2.5)
+fig.suptitle("Observations PDF")
+axs[0].legend()
+plt.tight_layout()
+
+# %%  Performance diagram for paper
+
+fog_thresh = 0.8
+
+# copy-paste plot_performance_diagram
+x = np.linspace(0.001, 1, 100)
+y = np.linspace(0.001, 1, 100)
+SR_grid, POD_grid = np.meshgrid(x, y)
+CSI = 1 / (1/SR_grid + 1/POD_grid - 1)
+
+# get model data
+
+# get observations with different processing
+obs_vis_median = np.clip(ds_obs["visas_median"].to_series() * 1e-3, 0, 10).reindex(time_vec)
+obs_vis_5min = np.clip(ds_obs["visas_5min"].to_series() * 1e-3, 0, 10).reindex(time_vec)
+
+# get forecaster data for BASE and TEMPO cases
+df_eval = 0
+df_eval = vf.df_TAF_gen(taf_table, time_vec, pd.Timestamp(START_DATE))
+df_eval = vf.calculate_scenarios(df_eval)
+df_eval = vf.assign_event_probabilities(df_eval, v_thresh=fog_thresh)
+df_eval['obs_vis_median'] = obs_vis_median
+df_eval['obs_vis_5min'] = obs_vis_5min
+df_eval['obs_event_median'] = (df_eval['obs_vis_median'] < fog_thresh).astype(float)
+df_eval['obs_event_5min'] = (df_eval['obs_vis_5min'] < fog_thresh).astype(float)
+mask = (df_eval['is_valid'] == True)
+
+truth_full, event_lib = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_median'],
+                                                   p_thresh=0.5, fog_thresh=fog_thresh)
+
+res_05_median = vf.compute_all_metrics(truth_full.loc[mask], event_lib.loc[mask])
+
+truth_full, event_lib = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_median'],
+                                                   p_thresh=0.0, fog_thresh=fog_thresh)
+res_00_median = vf.compute_all_metrics(truth_full.loc[mask], event_lib.loc[mask])
+
+truth_full, event_lib = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_5min'],
+                                                   p_thresh=0.5, fog_thresh=fog_thresh)
+res_05_5min = vf.compute_all_metrics(truth_full.loc[mask], event_lib.loc[mask])
+
+truth_full, event_lib = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_5min'],
+                                                   p_thresh=0.0, fog_thresh=fog_thresh)
+res_00_5min = vf.compute_all_metrics(truth_full.loc[mask], event_lib.loc[mask])
+
+fig, ax = plt.subplots(figsize=(10, 8), dpi=300)
+contour = ax.contourf(SR_grid, POD_grid, CSI, levels=np.arange(0, 1.1, 0.1), cmap='Greys', alpha=0.2)
+cbar = plt.colorbar(contour, ax=ax, pad=0.075)
+cbar.set_label('Critical Success Index (CSI)', fontsize=14)
+bias_values = [0.5, 0.8, 1, 1.3, 1.5, 2, 4]
+for b in bias_values:
+    end_x, end_y = (1, b) if b <= 1 else (1/b, 1)
+    ax.plot([0, end_x], [0, end_y], color='gray', linestyle='--', linewidth=0.8, alpha=0.5)
+    ax.text(end_x, end_y, f' B={b}', fontsize=13, alpha=0.7)
+
+ax.scatter(1 - results_df['FAR'], results_df['POD'], s=120,edgecolor='black', zorder=5)
+
+ax.set_xlim(0, 1)
+ax.set_ylim(0, 1)
+ax.set_xlabel('Success Ratio (1 - FAR)', fontsize=14)
+ax.set_ylabel('Probability of Detection (POD)', fontsize=14)
+# ax.set_title('Visibility Performance: TAF vs. Model Parametrizations', fontweight='bold')
+ax.grid(True, linestyle=':', alpha=0.4)
+ax.legend(loc='lower right', frameon=True, prop={'size': 7},ncols=2)
+plt.tight_layout()
+plt.show()
+
 
 # %%
