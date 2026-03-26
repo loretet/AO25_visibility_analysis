@@ -344,12 +344,7 @@ vf.plot_vis_summary(df_eval, df_eval['obs_vis'], model_data["IFS"], model_data["
 
 #%% Plot PDFs of observations
 
-START_DATE = '2025-08-12 01:00'
-END_DATE = '2025-09-16 00:00'
-TIME_RES = 'h'  # Analysis resolution (minutes, hours..)
 time_vec = pd.date_range(start=START_DATE, end=END_DATE, freq=TIME_RES)
-
-ds_obs2 = xr.open_dataset(OBS_PATH, decode_timedelta=True)
 
 period1_bounds = ('2025-08-12 00:00', '2025-08-16 12:00')
 period2_bounds = ('2025-08-16 13:00', '2025-09-03 00:00')
@@ -367,115 +362,60 @@ def filter_obs(ds_obs, var, time_vec):
     mask = (data < FOG_THRESH).astype(bool)
     return data.loc[mask]
 
-m01_quant = filter_obs(ds_obs2, "visas_1min", time_vec)
-m05_quant = filter_obs(ds_obs2, "visas_5min", time_vec)
-m10_quant = filter_obs(ds_obs2, "visas_10min", time_vec)
-m15_quant = filter_obs(ds_obs2, "visas_15min", time_vec)
-med_quant = filter_obs(ds_obs2, "visas_median", time_vec)
+# --- 1. Data Preparation (Avoid Overwriting) ---
+# Create a dictionary to keep things organized and iterable
+quant_vars = ["visas_1min", "visas_5min", "visas_10min", "visas_15min", "visas_median"]
+raw_data = {}
+filtered_data = {}
 
-fig,axs = plt.subplots(2,3,figsize=(16, 10))
-axs = axs.flatten()
-axs1 = axs[:3]
-axs2 = axs[3:]
+for v in quant_vars:
+    # Raw series for PDFs
+    raw_data[v] = ds_obs[v].to_series().reindex(time_vec, method='nearest', tolerance='5min') * 1e-3
+    # Filtered series for CDFs (Fog focus)
+    filtered_data[v] = filter_obs(ds_obs, v, time_vec)
 
-plt.title("Observations PDF - Different regimes")
+fig, axs = plt.subplots(2, 3, figsize=(16, 10))
+axs1 = axs[0, :]
+axs2 = axs[1, :]
+
+# --- 2. PDF Plotting (Top Row) ---
 for i, (bounds, period_name, color) in enumerate(periods):    
     p_start, p_end = bounds
-    m01_slice = m01_quant.loc[p_start:p_end]
-    m05_slice = m05_quant.loc[p_start:p_end]
-    m10_slice = m10_quant.loc[p_start:p_end]
-    m15_slice = m15_quant.loc[p_start:p_end]
+    
+    for var_name, ls in zip(quant_vars[:4], ["-", "--", ":", "-."]):
+        subset = raw_data[var_name].loc[p_start:p_end]
+        sns.histplot(subset, stat="density", element="poly", label=var_name, 
+                     bins=30, kde=False, fill=False, linestyle=ls, ax=axs1[i])
+    
+    axs1[i].set_title(f"Visibility PDF: {period_name}")
+    axs1[i].set_xlim(0, 20)
+    axs1[i].axvspan(0, FOG_THRESH, color='yellow', alpha=0.2, label='Fog Zone')
 
-    sns.histplot(m01_slice, stat="density",element="poly", label="1 min quantile",  bins=30, kde=False, fill=False, ax=axs1[i])
-    sns.histplot(m05_slice, stat="density",element="poly", label="5 min quantile",  bins=30, kde=False, fill=False, linestyle="--", ax=axs1[i])
-    sns.histplot(m10_slice, stat="density",element="poly", label="10 min quantile", bins=30, kde=False, fill=False, linestyle=":", ax=axs1[i])
-    sns.histplot(m15_slice, stat="density",element="poly", label="15 min quantile", bins=30, kde=False, fill=False, linestyle="-.", ax=axs1[i])
-    axs1[i].set_title(f"Observations PDF - {period_name}")
-    axs1[i].axvspan(0,FOG_THRESH, color='yellow', alpha=0.4)
-    [axs1[i].axhline(0.05*j,ls="--",lw=0.8,c="k") for j in [1,3,5]]
-    axs1[i].set_xlabel("Visibility (km)")
-    axs1[i].set_ylabel("Prob. density")
-    # axs[i].set_ylim(top=0.25,bottom=0)
-    axs1[i].set_xlim(left=0,right=20)
-for i, (bounds, period_name, color) in enumerate(periods):    
-    axs2[i].scatter(np.sort(m01_slice), np.linspace(0, 100, len(m01_slice)), label="1 min quantile",s=5)
-    axs2[i].scatter(np.sort(m05_slice), np.linspace(0, 100, len(m05_slice)), label="5 min quantile",s=5)
-    axs2[i].scatter(np.sort(m10_slice), np.linspace(0, 100, len(m10_slice)), label="10 min quantile",s=5)
-    axs2[i].scatter(np.sort(m15_slice), np.linspace(0, 100, len(m15_slice)), label="15 min quantile",s=5)
-    axs2[i].set_title(f"Observations CDF - {period_name}")
-    axs2[i].axvspan(0, FOG_THRESH, color='yellow', alpha=0.4)
+# --- 3. CDF Plotting (Bottom Row) ---
+for i, (bounds, period_name, color) in enumerate(periods):
+    p_start, p_end = bounds
+    
+    for var_name in quant_vars:
+        # CRITICAL FIX: Slice the filtered data for THIS period
+        subset = filtered_data[var_name].loc[p_start:p_end].dropna()
+        
+        if len(subset) > 0:
+            # Calculate ECDF: P(X <= x)
+            x_sorted = np.sort(subset)
+            # Normalizing to 1.0 is standard pedagogical practice for CDFs
+            y_values = np.linspace(0, 1, len(subset)) 
+            
+            axs2[i].plot(x_sorted, y_values, label=var_name, lw=1.5)
+
+    axs2[i].set_title(f"Fog ECDF: {period_name}")
     axs2[i].set_xlabel("Visibility (km)")
-    axs2[i].set_ylabel("Cumulative Probability")
-    axs2[i].set_xlim(left=0, right=2.5)
-fig.suptitle("Observations PDF")
-axs[0].legend()
-plt.tight_layout()
+    axs2[i].set_ylabel("F(x)")
+    axs2[i].set_xlim(0, FOG_THRESH) # Zoomed into the fog regime
+    axs2[i].grid(True, alpha=0.3)
 
-# %%  Performance diagram for paper
-
-fog_thresh = 0.8
-
-# copy-paste plot_performance_diagram
-x = np.linspace(0.001, 1, 100)
-y = np.linspace(0.001, 1, 100)
-SR_grid, POD_grid = np.meshgrid(x, y)
-CSI = 1 / (1/SR_grid + 1/POD_grid - 1)
-
-# get model data
-
-# get observations with different processing
-obs_vis_median = np.clip(ds_obs["visas_median"].to_series() * 1e-3, 0, 10).reindex(time_vec)
-obs_vis_5min = np.clip(ds_obs["visas_5min"].to_series() * 1e-3, 0, 10).reindex(time_vec)
-
-# get forecaster data for BASE and TEMPO cases
-df_eval = 0
-df_eval = vf.df_TAF_gen(taf_table, time_vec, pd.Timestamp(START_DATE))
-df_eval = vf.calculate_scenarios(df_eval)
-df_eval = vf.assign_event_probabilities(df_eval, v_thresh=fog_thresh)
-df_eval['obs_vis_median'] = obs_vis_median
-df_eval['obs_vis_5min'] = obs_vis_5min
-df_eval['obs_event_median'] = (df_eval['obs_vis_median'] < fog_thresh).astype(float)
-df_eval['obs_event_5min'] = (df_eval['obs_vis_5min'] < fog_thresh).astype(float)
-mask = (df_eval['is_valid'] == True)
-
-truth_full, event_lib = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_median'],
-                                                   p_thresh=0.5, fog_thresh=fog_thresh)
-
-res_05_median = vf.compute_all_metrics(truth_full.loc[mask], event_lib.loc[mask])
-
-truth_full, event_lib = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_median'],
-                                                   p_thresh=0.0, fog_thresh=fog_thresh)
-res_00_median = vf.compute_all_metrics(truth_full.loc[mask], event_lib.loc[mask])
-
-truth_full, event_lib = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_5min'],
-                                                   p_thresh=0.5, fog_thresh=fog_thresh)
-res_05_5min = vf.compute_all_metrics(truth_full.loc[mask], event_lib.loc[mask])
-
-truth_full, event_lib = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_5min'],
-                                                   p_thresh=0.0, fog_thresh=fog_thresh)
-res_00_5min = vf.compute_all_metrics(truth_full.loc[mask], event_lib.loc[mask])
-
-fig, ax = plt.subplots(figsize=(10, 8), dpi=300)
-contour = ax.contourf(SR_grid, POD_grid, CSI, levels=np.arange(0, 1.1, 0.1), cmap='Greys', alpha=0.2)
-cbar = plt.colorbar(contour, ax=ax, pad=0.075)
-cbar.set_label('Critical Success Index (CSI)', fontsize=14)
-bias_values = [0.5, 0.8, 1, 1.3, 1.5, 2, 4]
-for b in bias_values:
-    end_x, end_y = (1, b) if b <= 1 else (1/b, 1)
-    ax.plot([0, end_x], [0, end_y], color='gray', linestyle='--', linewidth=0.8, alpha=0.5)
-    ax.text(end_x, end_y, f' B={b}', fontsize=13, alpha=0.7)
-
-ax.scatter(1 - results_df['FAR'], results_df['POD'], s=120,edgecolor='black', zorder=5)
-
-ax.set_xlim(0, 1)
-ax.set_ylim(0, 1)
-ax.set_xlabel('Success Ratio (1 - FAR)', fontsize=14)
-ax.set_ylabel('Probability of Detection (POD)', fontsize=14)
-# ax.set_title('Visibility Performance: TAF vs. Model Parametrizations', fontweight='bold')
-ax.grid(True, linestyle=':', alpha=0.4)
-ax.legend(loc='lower right', frameon=True, prop={'size': 7},ncols=2)
+axs1[0].legend()
+axs2[0].legend()
 plt.tight_layout()
 plt.show()
-
 
 # %%
