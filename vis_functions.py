@@ -264,7 +264,7 @@ def plot_metrics_summary(metrics_df):
     ax2.grid(axis='y', linestyle=':', alpha=0.6)
     return fig1, fig2
 
-def get_evaluation_library(df, model_dict, obs_series, fog_thresh=1.0):
+def get_evaluation_library(df, model_dict, obs_series, p_thresh = 0.0,fog_thresh=1.0):
     """
     Creates a standardized library of boolean event series for all models and the forecaster.
     
@@ -284,7 +284,7 @@ def get_evaluation_library(df, model_dict, obs_series, fog_thresh=1.0):
     event_library = {}
     
     # Add Forecaster (treating P > 0 as an event)
-    event_library['Forecaster'] = (df['p_event'] > 0)
+    event_library['Forecaster'] = (df['p_event'] > p_thresh)
     
     # Add all numerical models
     for name, vis_series in model_dict.items():
