@@ -1,3 +1,11 @@
+# L. Donati
+# lorenzo.luca.donati@misu.su.se
+
+# Scripts for "Paper title"
+# by Authors...
+
+#%% Imports
+
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
@@ -6,7 +14,9 @@ from metar_taf_parser.parser.parser import TAFParser
 from sklearn.calibration import calibration_curve
 import seaborn as sns
 
-def TAF_parser(taf_string):
+#%% Functions
+
+def TAF_parser(taf_string,debug):
     """
     Parses a raw TAF string into a structured TAF object.
 
@@ -26,18 +36,19 @@ def TAF_parser(taf_string):
     
     taf = TAFParser().parse(clean_taf)
 
-    # Trends (TEMPO, BECMG, etc.)
-    base_vis = taf.visibility.distance  # in meters
-    # print("Base visibility:", base_vis)
-    for trend in taf.trends:
-        trend_type = trend.type.name  # TEMPO, BECMG, etc.
-        trend_vis = trend.visibility.distance if trend.visibility else None
-        start_hour = trend.validity.start_hour
-        end_hour = trend.validity.end_hour
-        # print(f"{trend_type}: {trend_vis}, from {start_hour:02d}:00 to {end_hour:02d}:00")
+    if debug:
+        # Trends (TEMPO, BECMG, etc.)
+        base_vis = taf.visibility.distance  # in meters
+        # print("Base visibility:", base_vis)
+        for trend in taf.trends:
+            trend_type = trend.type.name  # TEMPO, BECMG, etc.
+            trend_vis = trend.visibility.distance if trend.visibility else None
+            start_hour = trend.validity.start_hour
+            end_hour = trend.validity.end_hour
+            # print(f"{trend_type}: {trend_vis}, from {start_hour:02d}:00 to {end_hour:02d}:00")
     return taf
 
-def df_TAF_gen(taf_table, time_vec):
+def df_TAF_gen(taf_table, time_vec, debug):
     """
     Generates a DataFrame of TAF visibility data by parsing TAF strings and extracting
     base visibility, BECMG trends (with linear interpolation), and TEMPO/PROB variations.
@@ -79,19 +90,15 @@ def df_TAF_gen(taf_table, time_vec):
             if 'nan' in raw_taf.lower() or len(raw_taf) < 10: 
                 continue 
             
-            # This replaces the "taf_day0 + idx" logic
-            # It reads your "8/17/2025" format directly
+            # safe date & time handling
             taf_date = pd.to_datetime(row['Date']).normalize() 
-            
-            taf = TAF_parser(raw_taf)
+            taf = TAF_parser(raw_taf,debug)
             taf_start = taf_date + pd.Timedelta(hours=taf.validity.start_hour)
             taf_end = taf_date + pd.Timedelta(hours=taf.validity.end_hour)
-            
-            # Standard safety for any potential midnight crossings
             if taf_end <= taf_start:
                 taf_end += pd.Timedelta(days=1)
 
-            # --- SET VALIDITY MASK ---
+            # Set validity mask
             df.loc[taf_start:taf_end, 'is_valid'] = True
 
             def parse_vis_dist(dist_str):
@@ -110,11 +117,6 @@ def df_TAF_gen(taf_table, time_vec):
                     
                 # Standard conversion (meters to km)
                 val = float(num_part) / 1000.0
-                
-                # If the value is very small (e.g. 0.01), it was likely already in km
-                # This acts as a safety for mixed-unit parsing
-                if val < 0.1 and float(num_part) > 0:
-                    return float(num_part) 
                     
                 return val
 
@@ -123,7 +125,7 @@ def df_TAF_gen(taf_table, time_vec):
             df.loc[taf_start:taf_end, 'base'] = base_viz
             df.loc[taf_start:taf_end, 'main_vis'] = base_viz
 
-            # --- HANDLE TRENDS ---
+            # HAndle trends
             for trend in taf.trends:
                 start_t = taf_date + pd.Timedelta(hours=trend.validity.start_hour) 
                 end_t = taf_date + pd.Timedelta(hours=trend.validity.end_hour)
@@ -132,8 +134,7 @@ def df_TAF_gen(taf_table, time_vec):
                 t_vis = parse_vis_dist(trend.visibility.distance) if trend.visibility else None
 
                 if trend.type.name == 'BECMG' and t_vis is not None:
-                    # 1. Get the current visibility right before this trend starts
-                    # We use 'ffill' logic to get the last known state in the 'main_vis' column
+                    # 1. Get the current visibility right BEFORE this trend starts
                     v_start = df.loc[:start_t, 'main_vis'].ffill().iloc[-1]
                     
                     if pd.isna(v_start): 
@@ -147,7 +148,7 @@ def df_TAF_gen(taf_table, time_vec):
                         ramp = np.linspace(v_start, t_vis, len(target_indices))
                         df.loc[target_indices, 'main_vis'] = ramp
                     else:
-                        # If the window is too small for the time_vec resolution, jump to target
+                        # If the window is too small for the time_vec resolution, jupm to target
                         df.at[start_t, 'main_vis'] = t_vis
                     
                     # Update the state for the remainder of the TAF 
@@ -201,7 +202,6 @@ def assign_event_probabilities(df, v_thresh=1.0):
     """
     df['p_event'] = 0.0
     
-    # Use .maximum to ensure we keep the highest probability found for that minute
     # Priority: Main (100%) > PROB40 (40%) > PROB30 (30%) > TEMPO (10%)    
     mask_tempo = (df['tempo'] < v_thresh)
     df.loc[mask_tempo, 'p_event'] = np.maximum(df.loc[mask_tempo, 'p_event'], 0.1)
@@ -246,7 +246,6 @@ def get_metrics(forecast_bool, obs_bool):
     o = pd.Series(obs_bool)
 
     # Convert to boolean, treating NaN as False
-    # This fixes the "bad operand type for unary ~" error
     valid = (~f.isna()) & (~o.isna())
 
     f_bin = f[valid].astype(bool)
@@ -284,7 +283,6 @@ def compute_all_metrics(truth, event_library):
     """
     all_metrics = {}
     for name, event_series in event_library.items():
-        # Using your existing get_metrics function
         all_metrics[name] = get_metrics(event_series, truth)
     
     return pd.DataFrame(all_metrics).T
@@ -948,7 +946,7 @@ def plot_talagrand_histogram(ens_data, obs_data):
     ax.hist(ranks, bins=np.arange(n_members + 2) - 0.5, 
             density=True, edgecolor='black', alpha=0.7, color='skyblue')
     
-    # The "Ideal" line for a perfectly calibrated ensemble
+    # The "ideal" line for a  calibrated ensemble
     ax.axhline(1 / (n_members + 1), color='red', linestyle='--', lw=2, label='Perfectly Calibrated')
     
     ax.set_xlabel('Rank (Number of members < Observation)', fontsize=12)
@@ -961,7 +959,7 @@ def plot_talagrand_histogram(ens_data, obs_data):
     
     return fig, ax
 
-def plot_visibility_pdfs_cdfs(ds_obs, df_eval, time_vec, periods, quant_vars, FOG_THRESH):
+def plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, FOG_THRESH):
     """
     Plot PDFs and CDFs of visibility observations across multiple periods.
     
@@ -969,8 +967,6 @@ def plot_visibility_pdfs_cdfs(ds_obs, df_eval, time_vec, periods, quant_vars, FO
     -----------
     ds_obs : xarray.Dataset
         Observation dataset containing visibility quantile variables
-    df_eval : pd.DataFrame
-        Evaluation dataframe with TAF validity information
     time_vec : pd.DatetimeIndex
         Time vector for reindexing observations
     periods : list of tuples
@@ -1003,7 +999,7 @@ def plot_visibility_pdfs_cdfs(ds_obs, df_eval, time_vec, periods, quant_vars, FO
     axs2 = axs[1, :]
     
     # PDF Plotting (Top Row)
-    for i, (bounds, period_name, color) in enumerate(periods):    
+    for i, (bounds, period_name) in enumerate(periods):    
         p_start, p_end = bounds
         
         for var_name, ls in zip(quant_vars[:4], ["-", "--", ":", "-."]):
@@ -1016,7 +1012,7 @@ def plot_visibility_pdfs_cdfs(ds_obs, df_eval, time_vec, periods, quant_vars, FO
         axs1[i].axvspan(0, FOG_THRESH, color='yellow', alpha=0.2, label='Fog Zone')
     
     # CDF Plotting (Bottom Row)
-    for i, (bounds, period_name, color) in enumerate(periods):
+    for i, (bounds, period_name) in enumerate(periods):
         p_start, p_end = bounds
         
         for var_name, ls in zip(quant_vars[:4], ["-", "--", ":", "-."]):
@@ -1025,7 +1021,7 @@ def plot_visibility_pdfs_cdfs(ds_obs, df_eval, time_vec, periods, quant_vars, FO
             if len(subset) > 0:
                 x_sorted = np.sort(subset)
                 y_values = np.linspace(0, 1, len(subset))
-                axs2[i].plot(x_sorted, y_values, label=var_name, lw=1.5)
+                axs2[i].plot(x_sorted, y_values, label=var_name, linestyle=ls, lw=1.5)
         
         axs2[i].set_title(f"Fog ECDF: {period_name}")
         axs2[i].set_xlabel("Visibility (km)")
