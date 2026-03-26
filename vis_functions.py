@@ -216,9 +216,11 @@ def get_metrics(forecast_bool, obs_bool):
 
     # Convert to boolean, treating NaN as False
     # This fixes the "bad operand type for unary ~" error
-    f_bin = f.fillna(0).astype(bool)
-    o_bin = o.fillna(0).astype(bool)
-    
+    valid = (~f.isna()) & (~o.isna())
+
+    f_bin = f[valid].astype(bool)
+    o_bin = o[valid].astype(bool)
+
     a = (f_bin & o_bin).sum()    # Hit
     b = (f_bin & ~o_bin).sum()   # False Alarm
     c = (~f_bin & o_bin).sum()   # Miss
