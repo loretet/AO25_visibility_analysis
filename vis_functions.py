@@ -34,7 +34,7 @@ def TAF_parser(taf_string):
         trend_vis = trend.visibility.distance if trend.visibility else None
         start_hour = trend.validity.start_hour
         end_hour = trend.validity.end_hour
-        print(f"{trend_type}: {trend_vis}, from {start_hour:02d}:00 to {end_hour:02d}:00")
+        # print(f"{trend_type}: {trend_vis}, from {start_hour:02d}:00 to {end_hour:02d}:00")
     return taf
 
 def df_TAF_gen(taf_table, time_vec, taf_day0):
@@ -101,23 +101,26 @@ def df_TAF_gen(taf_table, time_vec, taf_day0):
                 t_vis = parse_vis_dist(trend.visibility.distance) if trend.visibility else None
 
                 if trend.type.name == 'BECMG' and t_vis is not None:
-                    df.loc[start_t:end_t, 'becmg'] = t_vis
+                    # 1. Get the current visibility right before this trend starts
+                    # We use 'ffill' logic to get the last known state in the 'main_vis' column
+                    v_start = df.loc[:start_t, 'main_vis'].ffill().iloc[-1]
                     
-                    # FIX 3: Safe indexing for interpolation
-                    try:
-                        prev_idx = start_t - pd.Timedelta(minutes=1)
-                        v_start = df.at[prev_idx, 'main_vis'] if prev_idx in df.index else base_viz
-                    except:
+                    if pd.isna(v_start): 
                         v_start = base_viz
+
+                    # 2. Identify the range
+                    target_indices = df.loc[start_t:end_t].index
                     
-                    if pd.isna(v_start): v_start = base_viz 
+                    if len(target_indices) > 1:
+                        # Create the linear transition
+                        ramp = np.linspace(v_start, t_vis, len(target_indices))
+                        df.loc[target_indices, 'main_vis'] = ramp
+                    else:
+                        # If the window is too small for the time_vec resolution, jump to target
+                        df.at[start_t, 'main_vis'] = t_vis
                     
-                    target_range = df.loc[start_t:end_t]
-                    if len(target_range) > 1:
-                        ramp = np.linspace(v_start, t_vis, len(target_range))
-                        df.loc[start_t:end_t, 'main_vis'] = ramp
-                    
-                    # Carry the BECMG value forward to the end of the TAF validity
+                    # Update the state for the remainder of the TAF 
+                    # so the NEXT trend starts from this new height
                     df.loc[end_t:taf_end, 'main_vis'] = t_vis
 
                 elif trend.type.name in ['TEMPO', 'PROB30', 'PROB40'] and t_vis is not None:
