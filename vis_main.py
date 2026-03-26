@@ -33,7 +33,8 @@ if flag:
 
 #%% SETTINGS AND PATHS
 # Settings
-FOG_THRESH = 0.8  # km  (0.8 km Cassel Aero threshold, 1 km WMO threshold)
+FOG_THRESH = 1  # km  (0.8 km Cassel Aero threshold, 1 km WMO threshold)
+FC_THRESH = 0.5 # forecast threshold to check low vis event (0: low vis assumed even if only predicted by TEMPO group. 0.5: only BASE group)
 MODEL_24h = False  # Whether to evaluate the full 24h forecast or just the TAF validity times:
                   #   True: the model gets evaluated over 24h, while the forecaster only on its active time
                   #   False: both model and forecaster are evaluated only on the TAFs validity window. Better imho
