@@ -11,11 +11,13 @@ import pandas as pd
 import seaborn as sns
 
 #%% PREPROCESS DATASETS
-flag = 0
-debug = 0
+# Flags:
+preproc = 0 # whether to preproc original dataset with different diagnostics (necesary only once)
+debug = 0   # whether to print debugging lines
+
+if preproc:
 # Rename the different visibilities from the original diagnostic datasets to "vis"
-# to be used with the functions in the script.
-if flag:
+# to be used with the functions in the script more easily.
     # 1. Load the dataset
     ds_base = xr.open_dataset('/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_oper_oden_20250811_20250915_day2_new_visibility_diagnostic_v1.nc',decode_times=True)
     # 2. Drop the original 'vis'
@@ -28,7 +30,6 @@ if flag:
     }
     for name, ds in ds_list.items():
         ds.to_netcdf(f"ifs_diagnostic_{name}.nc")
-
 
 #%% SETTINGS AND PATHS
 # Settings
