@@ -257,7 +257,7 @@ def get_metrics(forecast_bool, obs_bool):
     bias = (a + b) / (a + c) if (a + c) > 0 else 0
     csi = a / (a + b + c) if (a + b + c) > 0 else 0
     
-    return {"POD": pod, "FAR": far, "Bias": bias, "CSI": csi, "Hits": a, "Misses": c}
+    return {"POD": pod, "FAR": far, "Bias": bias, "CSI": csi, "Hits": a, "Misses": c, "False alarms": b, "Correct negatives" : d}
 
 def compute_all_metrics(truth, event_library):
     """
@@ -1096,3 +1096,42 @@ def plot_fog_events(df_eval, model_data, FOG_THRESH, event_lib=None, truth=None,
             else:
                 print("Model: MISSING TIMESTAMP")
             print("-" * 30)
+
+def calculate_ets(a, b, c, d):
+    """
+    Calculates the Equitable Threat Score (ETS).
+    
+    Parameters:
+    -----------
+    a : int/float
+        Hits
+    b : int/float
+        False Alarms
+    c : int/float
+        Misses
+    d : int/float
+        Correct Negatives
+    
+    Returns:
+    -----------
+    ets : float 
+        ETS value (range -1/3 to 1. 1 is perfect, 0 is no skill).
+    """
+    
+    n = a + b + c + d
+    
+    # 1. Calculate hits expected by chance (a_ref)
+    # (Total Forecast Yes * Total Observed Yes) / Total Events
+    a_ref = float((a + b) * (a + c)) / n
+    
+    # 2. Calculate ETS
+    numerator = a - a_ref
+    denominator = a + b + c - a_ref
+    
+    # Extreme case handling
+    if denominator == 0:
+        return np.nan
+        
+    ets = numerator / denominator
+    
+    return ets
