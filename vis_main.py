@@ -344,78 +344,14 @@ vf.plot_vis_summary(df_eval, df_eval['obs_vis'], model_data["IFS"], model_data["
 
 #%% Plot PDFs of observations
 
-time_vec = pd.date_range(start=START_DATE, end=END_DATE, freq=TIME_RES)
-
-period1_bounds = ('2025-08-12 00:00', '2025-08-16 12:00')
-period2_bounds = ('2025-08-16 13:00', '2025-09-03 00:00')
-period3_bounds = ('2025-09-03 01:00', '2025-09-16 00:00')
-
-# Update your loop list
 periods = [
-    (period1_bounds, 'Period 1', 'k'),
-    (period2_bounds, 'Period 2', 'r'),
-    (period3_bounds, 'Period 3', 'b')
+    (('2025-08-12 00:00', '2025-08-16 12:00'), 'Period 1', 'k'),
+    (('2025-08-16 13:00', '2025-09-03 00:00'), 'Period 2', 'r'),
+    (('2025-09-03 01:00', '2025-09-16 00:00'), 'Period 3', 'b')
 ]
 
-def filter_obs(ds_obs, var, time_vec):
-    data = ds_obs[var].to_series().reindex(time_vec, method='nearest', tolerance='5min') * 1e-3
-    mask = (data < FOG_THRESH).astype(bool)
-    return data.loc[mask]
-
-# --- 1. Data Preparation (Avoid Overwriting) ---
-# Create a dictionary to keep things organized and iterable
 quant_vars = ["visas_1min", "visas_5min", "visas_10min", "visas_15min", "visas_median"]
-raw_data = {}
-filtered_data = {}
 
-for v in quant_vars:
-    # Raw series for PDFs
-    raw_data[v] = ds_obs[v].to_series().reindex(time_vec, method='nearest', tolerance='5min') * 1e-3
-    # Filtered series for CDFs (Fog focus)
-    filtered_data[v] = filter_obs(ds_obs, v, time_vec)
-
-fig, axs = plt.subplots(2, 3, figsize=(16, 10))
-axs1 = axs[0, :]
-axs2 = axs[1, :]
-
-# --- 2. PDF Plotting (Top Row) ---
-for i, (bounds, period_name, color) in enumerate(periods):    
-    p_start, p_end = bounds
-    
-    for var_name, ls in zip(quant_vars[:4], ["-", "--", ":", "-."]):
-        subset = raw_data[var_name].loc[p_start:p_end]
-        sns.histplot(subset, stat="density", element="poly", label=var_name, 
-                     bins=30, kde=False, fill=False, linestyle=ls, ax=axs1[i])
-    
-    axs1[i].set_title(f"Visibility PDF: {period_name}")
-    axs1[i].set_xlim(0, 20)
-    axs1[i].axvspan(0, FOG_THRESH, color='yellow', alpha=0.2, label='Fog Zone')
-
-# --- 3. CDF Plotting (Bottom Row) ---
-for i, (bounds, period_name, color) in enumerate(periods):
-    p_start, p_end = bounds
-    
-    for var_name in quant_vars:
-        # CRITICAL FIX: Slice the filtered data for THIS period
-        subset = filtered_data[var_name].loc[p_start:p_end].dropna()
-        
-        if len(subset) > 0:
-            # Calculate ECDF: P(X <= x)
-            x_sorted = np.sort(subset)
-            # Normalizing to 1.0 is standard pedagogical practice for CDFs
-            y_values = np.linspace(0, 1, len(subset)) 
-            
-            axs2[i].plot(x_sorted, y_values, label=var_name, lw=1.5)
-
-    axs2[i].set_title(f"Fog ECDF: {period_name}")
-    axs2[i].set_xlabel("Visibility (km)")
-    axs2[i].set_ylabel("F(x)")
-    axs2[i].set_xlim(0, FOG_THRESH) # Zoomed into the fog regime
-    axs2[i].grid(True, alpha=0.3)
-
-axs1[0].legend()
-axs2[0].legend()
-plt.tight_layout()
-plt.show()
+vf.plot_visibility_pdfs_cdfs(ds_obs, df_eval, time_vec, periods, quant_vars, FOG_THRESH)
 
 # %%
