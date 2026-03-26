@@ -52,7 +52,8 @@ TIME_RES = 'h'  # Analysis resolution (minutes, hours..)
 
 # File Paths
 TAF_PATH = '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/AO25_TAFs.xlsx'
-OBS_PATH = '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/obs_data/AO2025_MDF_20250812-20250915.nc'
+OBS_PATH = '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/obs_data/AO2025_MDF_20250812-20250915_hourly_quantiles.nc'
+visas = "visas_median"
 
 # Create model dictionary
 MODEL_PATHS = {
