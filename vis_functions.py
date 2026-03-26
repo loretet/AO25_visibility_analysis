@@ -106,25 +106,17 @@ def df_TAF_gen(taf_table, time_vec, debug):
             df.loc[taf_start:taf_end, 'is_valid'] = True
 
             def parse_vis_dist(dist_str):
-                if not dist_str: 
-                    return 10.0 # Standard assumption for CAVOK/Missing distance
-                
-                # Handle "9999" (10km+) or "CAVOK" strings specifically
-                if "9999" in dist_str or "CAVOK" in dist_str:
-                    return 10.0
-                    
-                # Remove non-numeric except decimal points
-                num_part = ''.join(c for c in dist_str if c.isdigit() or c == '.')
-                
-                if not num_part: 
-                    return 10.0 if '>' in dist_str else np.nan
-                    
-                # Standard conversion (meters to km)
-                val = float(num_part) / 1000.0
-                    
-                return val
 
-            base_viz = parse_vis_dist(taf.visibility.distance)
+                # Handle "9999" (10km+) or "CAVOK" strings specifically
+                if dist_str == "> 10km":
+                    num_part = 10000
+                else:
+                    # Remove non-numeric except decimal points
+                    num_part = ''.join(c for c in dist_str if c.isdigit() or c == '.')
+                    
+                return float(num_part)
+
+            base_viz = parse_vis_dist(taf.visibility.distance)/1000
             
             df.loc[taf_start:taf_end, 'base'] = base_viz
             df.loc[taf_start:taf_end, 'main_vis'] = base_viz
@@ -135,7 +127,7 @@ def df_TAF_gen(taf_table, time_vec, debug):
                 end_t = taf_date + pd.Timedelta(hours=trend.validity.end_hour)
                 if end_t <= start_t: end_t += pd.Timedelta(days=1)
                 
-                t_vis = parse_vis_dist(trend.visibility.distance) if trend.visibility else None
+                t_vis = parse_vis_dist(trend.visibility.distance)/1000 if trend.visibility else None
 
                 if trend.type.name == 'BECMG' and t_vis is not None:
                     # 1. Get the current visibility right BEFORE this trend starts
