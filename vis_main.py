@@ -67,36 +67,36 @@ ENS_PATH = '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_d
 #%% BASELINE DATA PREP
 
 # 0. Initialize Time Vector
-time_vec = pd.date_range(start=START_DATE, end=END_DATE, freq=TIME_RES)
+time_vec = pd.date_range(start=START_DATE, end=END_DATE, freq=TIME_RES, inclusive="both")
 
 # 1. Read models into the dictionary
 model_data = {}
 for name, path in MODEL_PATHS.items():
     # Process deterministic forecasts
-    with xr.open_dataset(path) as ds:
+    with xr.open_dataset(path, decode_timedelta=True) as ds:
         # Explicitly check for the variable
         if 'vis' not in ds:
             print(f"Error: Variable 'vis' not found in {path}. Available: {list(ds.data_vars)}")
         # Ensure we are interpolating the specific dataset object
-        series = ds.vis.interp(time=time_vec).to_series() * 1e-3
+        series = ds.vis.to_series().reindex(time_vec) * 1e-3
         model_data[name] = np.clip(series, 0, 10)
         # print(f"Processed {name} with values ranging {model_data[name].min():.2f} to {model_data[name].max():.2f}")
 
 # Process ensemble forecasts
-with xr.open_dataset(ENS_PATH) as ds_ens:
+with xr.open_dataset(ENS_PATH, decode_timedelta=True) as ds_ens:
     # 1. Align ensemble members to your timeline (time, number)
     # Convert to km and clip for consistency
-    ens_aligned = ds_ens.vis.interp(time=time_vec).clip(min=0, max=10000) * 1e-3
+    ens_aligned = ds_ens.vis.clip(min=0, max=10000) * 1e-3
     
     # 2. Extract "Main Scenario" (Median)
-    model_data['Ens_Median'] = ens_aligned.median(dim='number').to_series()
+    model_data['Ens_Median'] = ens_aligned.median(dim='number').to_series().reindex(time_vec)
     
     # 3. Extract "Worst Case" (Minimum member)
-    model_data['Ens_WorstCase'] = ens_aligned.min(dim='number').to_series()
+    model_data['Ens_WorstCase'] = ens_aligned.min(dim='number').to_series().reindex(time_vec)
     
     # 4. Probabilistic Triggers
-    # Calculate fraction of members < 0.8 km
-    prob_fog = (ens_aligned < FOG_THRESH).mean(dim='number').to_series()
+    # Calculate fraction of members
+    prob_fog = (ens_aligned < FOG_THRESH).mean(dim='number').to_series().reindex(time_vec)
     
     # Create binary series: If prob > X%, we set vis to 0.0 (Fog), else 10.0 (Clear)
     model_data['Ens_P20'] = pd.Series(np.where(prob_fog > 0.20, 0.0, 10.0), index=time_vec)
@@ -105,29 +105,55 @@ with xr.open_dataset(ENS_PATH) as ds_ens:
 # 2. Load and Process TAFs
 taf_table = pd.read_excel(TAF_PATH, header=1, sheet_name='Sheet1').reset_index(drop=True)
 taf_table = taf_table[taf_table['TAF Oden'].notna()]  # ensure no empty rows
+taf_table['Date'] = pd.to_datetime(taf_table['Date'])
+start_day_table = pd.to_datetime(START_DATE).normalize()
+end_day_table = pd.to_datetime(END_DATE).normalize()
+mask = (taf_table['Date'] >= start_day_table) & (taf_table['Date'] <= end_day_table)
+taf_table = taf_table.loc[mask].reset_index(drop=True)
 
-# CRITICAL: START_DATE must match furst row of the Excel
+# START_DATE must match furst row of the Excel
 df_eval = vf.df_TAF_gen(taf_table, time_vec, pd.Timestamp(START_DATE))
 df_eval = vf.calculate_scenarios(df_eval)
 df_eval = vf.assign_event_probabilities(df_eval, v_thresh=FOG_THRESH)
 
 # 3. Load and Align Observations
 ds_obs = xr.open_dataset(OBS_PATH, decode_timedelta=True)
+
 # Apply smoothing and align to time_vec
-vis_obs_series = ds_obs.visas.rolling({"time01": 60}, center=True).mean() \
-                 .interp(time01=time_vec).to_series() * 1e-3
-vis_obs_series = np.clip(vis_obs_series, 0, 10)
+vis_obs_series = ds_obs[visas].to_series() * 1e-3
+vis_obs_series = np.clip(vis_obs_series, 0, 10).reindex(time_vec)
+
+# Check number of visibility observations with vis < 800m
+cp=0
+cm=0
+for i in vis_obs_series:
+    if i <= FOG_THRESH:
+        cm +=1
+    elif i > FOG_THRESH:
+        cp +=1
+
+print(f"Count of points with vis > {FOG_THRESH*1e3}m: {cp}")
+print(f"Count of points with vis <= {FOG_THRESH*1e3}m: {cm}  [{cm*100/(cm+cp):.1f}% of the total]")
+
 
 # Check data overlap
-valid_minutes = df_eval['is_valid'].sum()
-print(f"Total minutes with valid TAFs: {valid_minutes}")
-if valid_minutes == 0:
+valid_times = df_eval['is_valid'].sum()
+print(f"Total time units with valid TAFs: {valid_times}")
+if valid_times == 0:
     print("WARNING: No TAFs were mapped to the time vector. Check START_DATE/Index alignment.")
 
 # Add to evaluation dataframe
 df_eval['obs_vis'] = vis_obs_series
 df_eval['obs_event'] = (df_eval['obs_vis'] < FOG_THRESH).astype(float)
 
+# Debugging time 
+if debug:
+    print("### DEBUGGING time_vec ###")
+    for name, series in model_data.items():
+        print(name, series.index.min(), series.index.max(), len(series))
+    print("time_vec:", time_vec.min(), time_vec.max(), len(time_vec))
+    print("Obs:", vis_obs_series.index.min(), vis_obs_series.index.max(), len(vis_obs_series))
+    print("TAFs:", df_eval.index.min(), df_eval.index.max(), len(df_eval))
 
 #%% MODEL EVALUATION
 
