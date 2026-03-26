@@ -1,11 +1,10 @@
-# L. Donati
+# Ref: L. Donati
 # lorenzo.luca.donati@misu.su.se
 
 # Scripts for "Paper title"
 # by Authors...
 
 #%% Imports
-
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 import pandas as pd
@@ -15,7 +14,6 @@ from sklearn.calibration import calibration_curve
 import seaborn as sns
 
 #%% Functions
-
 def TAF_parser(taf_string,debug):
     """
     Parses a raw TAF string into a structured TAF object.
@@ -24,6 +22,8 @@ def TAF_parser(taf_string,debug):
     ----------
     taf_string : str
         The raw TAF text (e.g., 'TAF EBBR 121130Z...').
+    debug : bool
+        Whether to print debugging info or not.
 
     Returns
     -------
@@ -60,6 +60,8 @@ def df_TAF_gen(taf_table, time_vec, debug):
         (in format 'M/D/YYYY', e.g., '8/17/2025').
     time_vec : pd.DatetimeIndex
         The time index for the output DataFrame (hourly or sub-hourly timestamps).
+    debug : bool
+        Whether to print debugging info or not.
 
     Returns
     -------

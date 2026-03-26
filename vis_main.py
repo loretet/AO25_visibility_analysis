@@ -1,4 +1,10 @@
-#%% imports
+# Ref: L. Donati
+# lorenzo.luca.donati@misu.su.se
+
+# Scripts for "Paper title"
+# by Authors...
+
+#%% Imports
 from datetime import datetime
 import re 
 import vis_functions as vf
