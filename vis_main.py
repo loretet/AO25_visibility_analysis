@@ -21,7 +21,6 @@ if flag:
     # 2. Drop the original 'vis'
     ds_dropped = ds_base.drop_vars('vis')
     # 3. Create the three datasets
-    # We use .rename() to map the diagnostic variable to 'vis'
     ds_list = {
         'lowLvlMean': ds_dropped.rename({'vis_from_hydro_lowLvlMean': 'vis'}),
         'lowLvlSum':  ds_dropped.rename({'vis_from_hydro_lowLvlSum': 'vis'}),
@@ -48,9 +47,9 @@ START_DATE = '2025-08-12 00:00'
 # Period 3:
 # START_DATE = '2025-09-03 01:00'
 END_DATE = '2025-09-16 00:00'
-TIME_RES = 'h'  # Analysis resolution (minutes, hours..)
+TIME_RES = 'h'  # Analysis resolution (minutes, hours..) - important for obs
 
-# File Paths
+# File Paths (observation ALREADY preprocessed with hourly median/quantiles and divided in quantiles)
 TAF_PATH = '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/AO25_TAFs.xlsx'
 OBS_PATH = '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/obs_data/AO2025_MDF_20250812-20250915_hourly_quantiles.nc'
 visas = "visas_median"
@@ -80,7 +79,8 @@ for name, path in MODEL_PATHS.items():
         # Ensure we are interpolating the specific dataset object
         series = ds.vis.to_series().reindex(time_vec) * 1e-3
         model_data[name] = np.clip(series, 0, 10)
-        # print(f"Processed {name} with values ranging {model_data[name].min():.2f} to {model_data[name].max():.2f}")
+        if debug:
+            print(f"Processed {name} with values ranging {model_data[name].min():.2f} to {model_data[name].max():.2f}")
 
 # Process ensemble forecasts
 with xr.open_dataset(ENS_PATH, decode_timedelta=True) as ds_ens:
@@ -111,8 +111,8 @@ end_day_table = pd.to_datetime(END_DATE).normalize()
 mask = (taf_table['Date'] >= start_day_table) & (taf_table['Date'] <= end_day_table)
 taf_table = taf_table.loc[mask].reset_index(drop=True)
 
-# START_DATE must match furst row of the Excel
-df_eval = vf.df_TAF_gen(taf_table, time_vec, pd.Timestamp(START_DATE))
+# START_DATE **must** match furst row of the Excel
+df_eval = vf.df_TAF_gen(taf_table, time_vec, debug)
 df_eval = vf.calculate_scenarios(df_eval)
 df_eval = vf.assign_event_probabilities(df_eval, v_thresh=FOG_THRESH)
 
@@ -124,23 +124,23 @@ vis_obs_series = ds_obs[visas].to_series() * 1e-3
 vis_obs_series = np.clip(vis_obs_series, 0, 10).reindex(time_vec)
 
 # Check number of visibility observations with vis < 800m
-cp=0
-cm=0
-for i in vis_obs_series:
-    if i <= FOG_THRESH:
-        cm +=1
-    elif i > FOG_THRESH:
-        cp +=1
-
-print(f"Count of points with vis > {FOG_THRESH*1e3}m: {cp}")
-print(f"Count of points with vis <= {FOG_THRESH*1e3}m: {cm}  [{cm*100/(cm+cp):.1f}% of the total]")
+if debug:
+    cp,cm=0,0
+    for i in vis_obs_series:
+        if i <= FOG_THRESH:
+            cm +=1
+        elif i > FOG_THRESH:
+            cp +=1
+    print(f"Count of points with vis > {FOG_THRESH*1e3}m: {cp}")
+    print(f"Count of points with vis <= {FOG_THRESH*1e3}m: {cm}  [{cm*100/(cm+cp):.1f}% of the total]")
 
 
 # Check data overlap
-valid_times = df_eval['is_valid'].sum()
-print(f"Total time units with valid TAFs: {valid_times}")
-if valid_times == 0:
-    print("WARNING: No TAFs were mapped to the time vector. Check START_DATE/Index alignment.")
+if debug: 
+    valid_times = df_eval['is_valid'].sum()
+    print(f"Total time units with valid TAFs: {valid_times}")
+    if valid_times == 0:
+        print("WARNING: No TAFs were mapped to the time vector. Check START_DATE/Index alignment.")
 
 # Add to evaluation dataframe
 df_eval['obs_vis'] = vis_obs_series
@@ -169,7 +169,7 @@ if not MODEL_24h:
     # Everything (Truth, Forecaster, Models) is restricted to 07:00-15:00
     truth = truth_full.loc[mask]
     
-    # Apply mask to the event library (Handling both DataFrame and Dict)
+    # apply mask to the event library (Hhndling both DataFrame and Dict)
     if isinstance(event_lib, pd.DataFrame):
         eval_lib = event_lib.loc[mask]
     else:
@@ -218,17 +218,14 @@ custom_order = ['Forecaster'] + all_rows  # Forecaster on top when printing
 results_df = results_df.reindex(custom_order)
 print(results_df.to_string(float_format="%.3f"))
 
-# vf.plot_ensemble_spaghetti(ens_aligned, df_eval['obs_vis'], '2025-08-25', '2025-08-27')
-
 # 4. Brier Score calculation
 bs_ens = vf.compute_brier_score(prob_fog, df_eval['obs_event'])
 print(f"Ensemble Brier Score: {bs_ens:.4f}")
 
 #%% Check fog events in [START_DATE , END_DATE]
 
-fig, ax = plt.subplots(figsize=(16, 8))
-
 # Plot observations and models
+fig, ax = plt.subplots(figsize=(16, 8))
 ax.plot(df_eval.index, df_eval['obs_vis'], label='Observed Vis (km)', color='black')
 for model_name, model_series in model_data.items():
     if model_name.startswith("Ens_"):
@@ -298,7 +295,7 @@ vf.plot_performance_diagram(
 )
 
 # 2. Visual Summary Bar Chart
-# vf.plot_metrics_summary(results_df)
+vf.plot_metrics_summary(results_df)
 
 # 3. Meteogram for a specific interesting window
 plot_start, plot_end = '2025-08-20', '2025-08-30'
@@ -330,28 +327,21 @@ vf.plot_taf_components(df_eval)
 
 # 2. Zoom into a specific event (e.g., a fog episode on Aug 25)
 vf.plot_taf_window(df_eval, FOG_THRESH, '2025-08-24', '2025-08-24')
-#%%
+
 # 3. Visual summary with TAF uncertainty
 vf.plot_vis_summary(df_eval, df_eval['obs_vis'], model_data["IFS"], model_data["lowLvlMean"], FOG_THRESH, start_date="2025-08-30", end_date="2025-08-30")
 
-
-##########################################################################
-#%%#######################################################################
-
-##########################################################################
-
-#%% WORKSHOP IN LEEDS
-
-#%% Plot PDFs of observations
-
+# 4. PDFs of observations
 periods = [
-    (('2025-08-12 00:00', '2025-08-16 12:00'), 'Period 1', 'k'),
-    (('2025-08-16 13:00', '2025-09-03 00:00'), 'Period 2', 'r'),
-    (('2025-09-03 01:00', '2025-09-16 00:00'), 'Period 3', 'b')
+    (('2025-08-12 00:00', '2025-08-16 12:00'), 'Period 1'),
+    (('2025-08-16 13:00', '2025-09-03 00:00'), 'Period 2'),
+    (('2025-09-03 01:00', '2025-09-16 00:00'), 'Period 3')
 ]
-
 quant_vars = ["visas_1min", "visas_5min", "visas_10min", "visas_15min", "visas_median"]
+vf.plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, FOG_THRESH)
 
-vf.plot_visibility_pdfs_cdfs(ds_obs, df_eval, time_vec, periods, quant_vars, FOG_THRESH)
+# 5. Ensemble spaghetti
+vf.plot_ensemble_spaghetti(ens_aligned, df_eval['obs_vis'], '2025-08-25', '2025-08-27')
+
 
 # %%
