@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 from metar_taf_parser.parser.parser import TAFParser
 from sklearn.calibration import calibration_curve
+import seaborn as sns
 
 def TAF_parser(taf_string):
     """
@@ -959,3 +960,79 @@ def plot_talagrand_histogram(ens_data, obs_data):
     plt.tight_layout()
     
     return fig, ax
+
+def plot_visibility_pdfs_cdfs(ds_obs, df_eval, time_vec, periods, quant_vars, FOG_THRESH):
+    """
+    Plot PDFs and CDFs of visibility observations across multiple periods.
+    
+    Parameters:
+    -----------
+    ds_obs : xarray.Dataset
+        Observation dataset containing visibility quantile variables
+    df_eval : pd.DataFrame
+        Evaluation dataframe with TAF validity information
+    time_vec : pd.DatetimeIndex
+        Time vector for reindexing observations
+    periods : list of tuples
+        List of ((start_date, end_date), period_name, color) tuples defining analysis periods
+    quant_vars : list of str
+        List of quantile variable names to plot (e.g., ["visas_1min", "visas_median"])
+    FOG_THRESH : float
+        Fog threshold in km for shading and filtering
+    
+    Returns:
+    --------
+    None
+        Displays matplotlib figure with 2x3 subplots (PDFs and CDFs)
+    """
+    def filter_obs(ds_obs, var, time_vec):
+        data = ds_obs[var].to_series().reindex(time_vec, method='nearest', tolerance='5min') * 1e-3
+        mask = (data < FOG_THRESH).astype(bool)
+        return data.loc[mask]
+    
+    # Data preparation
+    raw_data = {}
+    filtered_data = {}
+    
+    for v in quant_vars:
+        raw_data[v] = ds_obs[v].to_series().reindex(time_vec, method='nearest', tolerance='5min') * 1e-3
+        filtered_data[v] = filter_obs(ds_obs, v, time_vec)
+    
+    fig, axs = plt.subplots(2, 3, figsize=(16, 10))
+    axs1 = axs[0, :]
+    axs2 = axs[1, :]
+    
+    # PDF Plotting (Top Row)
+    for i, (bounds, period_name, color) in enumerate(periods):    
+        p_start, p_end = bounds
+        
+        for var_name, ls in zip(quant_vars[:4], ["-", "--", ":", "-."]):
+            subset = raw_data[var_name].loc[p_start:p_end]
+            sns.histplot(subset, stat="density", element="poly", label=var_name, 
+                         bins=30, kde=False, fill=False, linestyle=ls, ax=axs1[i])
+        
+        axs1[i].set_title(f"Visibility PDF: {period_name}")
+        axs1[i].set_xlim(0, 20)
+        axs1[i].axvspan(0, FOG_THRESH, color='yellow', alpha=0.2, label='Fog Zone')
+    
+    # CDF Plotting (Bottom Row)
+    for i, (bounds, period_name, color) in enumerate(periods):
+        p_start, p_end = bounds
+        
+        for var_name, ls in zip(quant_vars[:4], ["-", "--", ":", "-."]):
+            subset = filtered_data[var_name].loc[p_start:p_end].dropna()
+            
+            if len(subset) > 0:
+                x_sorted = np.sort(subset)
+                y_values = np.linspace(0, 1, len(subset))
+                axs2[i].plot(x_sorted, y_values, label=var_name, lw=1.5)
+        
+        axs2[i].set_title(f"Fog ECDF: {period_name}")
+        axs2[i].set_xlabel("Visibility (km)")
+        axs2[i].set_ylabel("F(x)")
+        axs2[i].set_xlim(0, FOG_THRESH*1.25)
+        axs2[i].grid(True, alpha=0.3)
+        axs2[i].axvspan(0, FOG_THRESH, color='yellow', alpha=0.1)
+    
+    axs1[0].legend()
+    plt.tight_layout()
