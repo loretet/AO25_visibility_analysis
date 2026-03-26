@@ -166,14 +166,14 @@ mask = (df_eval['is_valid'] == True)
 if not MODEL_24h:
     # --- SCENARIO: SYNCHRONIZED DAYTIME ONLY ---
     # Everything (Truth, Forecaster, Models) is restricted to 07:00-15:00
-    truth = truth_full.where(mask)
+    truth = truth_full.loc[mask]
     
     # Apply mask to the event library (Handling both DataFrame and Dict)
     if isinstance(event_lib, pd.DataFrame):
-        eval_lib = event_lib.apply(lambda x: x.where(mask))
+        eval_lib = event_lib.loc[mask]
     else:
-        eval_lib = {k: v.where(mask) for k, v in event_lib.items()}
-    
+        eval_lib = {k: v.loc[mask] for k, v in event_lib.items()}
+
     results_df = vf.compute_all_metrics(truth, eval_lib)
     print(f"--- SYNCHRONIZED EVALUATION (TAF VALIDITY TIME ONLY) ---")
 
@@ -182,8 +182,8 @@ else:
     # Forecaster is evaluated on 8h window | Models are evaluated on 24h window
     
     # A. Forecaster metrics (8h window)
-    truth_forecaster = truth_full.where(mask)
-    forecaster_series = event_lib['Forecaster'].where(mask)
+    truth_forecaster = truth_full.loc[mask]
+    forecaster_series = event_lib['Forecaster'].loc[mask]
     forecaster_metrics = vf.get_metrics(forecaster_series, truth_forecaster)
     forecaster_df = pd.DataFrame(forecaster_metrics, index=['Forecaster'])
     
@@ -198,6 +198,18 @@ else:
     # C. Combine
     results_df = pd.concat([model_results_df, forecaster_df])
     print(f"--- HYBRID EVALUATION (Models: 24h | Forecaster: 8h) ---")
+
+if debug:
+    print("---- SANITY CHECK ----")
+    print("Truth sum:", truth.sum())
+
+    for name, s in eval_lib.items():
+        print(name, "sum:", s.sum(), "non-NaN:", s.notna().sum())
+    print("### DEBUG overlap length ###")
+    print("Truth events:", truth.sum())
+    for name, series in eval_lib.items():
+        aligned = truth.align(series, join='inner')
+        print(name, "overlap length:", len(aligned[0].dropna()))
 
 # 3. View Results
 all_rows = sorted([r for r in results_df.index if r != 'Forecaster'])
