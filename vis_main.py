@@ -17,7 +17,7 @@ flag = 0
 # to be used with the functions in the script.
 if flag:
     # 1. Load the dataset
-    ds_base = xr.open_dataset('/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_oper_oden_20250811_20250915_day2_new_visibility_diagnostic_v1.nc')
+    ds_base = xr.open_dataset('/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_oper_oden_20250811_20250915_day2_new_visibility_diagnostic_v1.nc',decode_times=True)
     # 2. Drop the original 'vis'
     ds_dropped = ds_base.drop_vars('vis')
     # 3. Create the three datasets
