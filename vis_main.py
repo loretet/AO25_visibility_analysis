@@ -55,7 +55,7 @@ TIME_RES = 'h'  # Analysis resolution (minutes, hours..) - important for obs
 # File Paths (observation ALREADY preprocessed with hourly median/quantiles and divided in quantiles)
 TAF_PATH = '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/AO25_TAFs.xlsx'
 OBS_PATH = '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/obs_data/AO2025_MDF_20250812-20250915_hourly_quantiles.nc'
-visas = "visas_median"
+visas = "visas_5min"
 
 # Create model dictionary
 MODEL_PATHS = {
@@ -137,13 +137,15 @@ if debug:
     print(f"Count of points with vis > {FOG_THRESH*1e3}m: {cp}")
     print(f"Count of points with vis <= {FOG_THRESH*1e3}m: {cm}  [{cm*100/(cm+cp):.1f}% of the total]")
 
-
 # Check data overlap
 if debug: 
     valid_times = df_eval['is_valid'].sum()
     print(f"Total time units with valid TAFs: {valid_times}")
     if valid_times == 0:
         print("WARNING: No TAFs were mapped to the time vector. Check START_DATE/Index alignment.")
+    mask = (vis_obs_series < FOG_THRESH) & (df_eval['is_valid'] == True)
+    low_vis_count = mask.sum()
+    print(f"Low visibility events in TAF validity window: {low_vis_count}")  
 
 # Add to evaluation dataframe
 df_eval['obs_vis'] = vis_obs_series
@@ -272,7 +274,7 @@ vf.plot_talagrand_histogram(ens_aligned, df_eval['obs_vis'])
 vf.plot_taf_components(df_eval)
 
 # 2. Zoom into a specific event (e.g., a fog episode on Aug 25)
-vf.plot_taf_window(df_eval, FOG_THRESH, '2025-08-24', '2025-08-24')
+vf.plot_taf_window(df_eval, FOG_THRESH, '2025-09-03', '2025-09-16')
 
 # 3. Visual summary with TAF uncertainty
 vf.plot_vis_summary(df_eval, df_eval['obs_vis'], 
