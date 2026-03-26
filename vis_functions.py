@@ -965,76 +965,75 @@ def plot_talagrand_histogram(ens_data, obs_data):
 
 def plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, FOG_THRESH):
     """
-    Plot PDFs and CDFs of visibility observations across multiple periods.
-    
-    Parameters:
-    -----------
+    Generate probability density function (PDF) and cumulative distribution function (CDF) plots for visibility data.
+    This function creates a 2x3 subplot grid displaying PDFs in the top row and empirical CDFs (ECDFs) 
+    in the bottom row for different time periods. The plots highlight fog conditions based on a specified 
+    visibility threshold.
+    Parameters
+    ----------
     ds_obs : xarray.Dataset
-        Observation dataset containing visibility quantile variables
-    time_vec : pd.DatetimeIndex
-        Time vector for reindexing observations
-    periods : list of tuples
-        List of ((start_date, end_date), period_name, color) tuples defining analysis periods
+        Dataset containing observational visibility data with variables corresponding to quant_vars.
+    time_vec : pandas.DatetimeIndex
+        Time vector for reindexing the data to align observations with a common temporal grid.
+    periods : list of tuple
+        List of tuples containing ((start_time, end_time), period_name) pairs defining the time periods 
+        to analyze and their descriptive names.
     quant_vars : list of str
-        List of quantile variable names to plot (e.g., ["visas_1min", "visas_median"])
+        List of variable names representing different visibility measurement sources or types. 
+        The first 4 variables are plotted in the PDFs and CDFs.
     FOG_THRESH : float
-        Fog threshold in km for shading and filtering
-    
-    Returns:
-    --------
+        Visibility threshold (in km) below which conditions are considered foggy. Used to highlight 
+        the fog zone and set x-axis limits for the ECDF plots.
+    Returns
+    -------
     None
-        Displays matplotlib figure with 2x3 subplots (PDFs and CDFs)
+        Displays a matplotlib figure with 6 subplots (2 rows × 3 columns).
     """
-    def filter_obs(ds_obs, var, time_vec):
-        data = ds_obs[var].to_series().reindex(time_vec, method='nearest', tolerance='5min') * 1e-3
-        mask = (data < FOG_THRESH).astype(bool)
-        return data.loc[mask]
-    
-    # Data preparation
     raw_data = {}
-    filtered_data = {}
-    
     for v in quant_vars:
         raw_data[v] = ds_obs[v].to_series().reindex(time_vec, method='nearest', tolerance='5min') * 1e-3
-        filtered_data[v] = filter_obs(ds_obs, v, time_vec)
     
     fig, axs = plt.subplots(2, 3, figsize=(16, 10))
-    axs1 = axs[0, :]
-    axs2 = axs[1, :]
+    axs1 = axs[0, :] 
+    axs2 = axs[1, :] 
     
-    # PDF Plotting (Top Row)
     for i, (bounds, period_name) in enumerate(periods):    
         p_start, p_end = bounds
         
         for var_name, ls in zip(quant_vars[:4], ["-", "--", ":", "-."]):
-            subset = raw_data[var_name].loc[p_start:p_end]
+            # 1. Extract period subset
+            subset = raw_data[var_name].loc[p_start:p_end].dropna()
+            if subset.empty:
+                continue
+
+            # --- PDF Plotting ---
             sns.histplot(subset, stat="density", element="poly", label=var_name, 
-                         bins=30, kde=False, fill=False, linestyle=ls, ax=axs1[i])
-        
+                         bins=50, kde=False, fill=False, linestyle=ls, ax=axs1[i])
+            
+            # --- CDF Plotting ---
+            # Sort full subset to get the true ECDF of the period
+            x_sorted = np.sort(subset.values)
+            # Probability P(X <= x)
+            y_values = np.arange(1, len(x_sorted) + 1) / len(x_sorted)
+            
+            axs2[i].plot(x_sorted, y_values, label=var_name, linestyle=ls, 
+                         marker='.', markersize=6, alpha=0.6, lw=0.5)
+
         axs1[i].set_title(f"Visibility PDF: {period_name}")
         axs1[i].set_xlim(0, 20)
         axs1[i].axvspan(0, FOG_THRESH, color='yellow', alpha=0.2, label='Fog Zone')
-    
-    # CDF Plotting (Bottom Row)
-    for i, (bounds, period_name) in enumerate(periods):
-        p_start, p_end = bounds
-        
-        for var_name, ls in zip(quant_vars[:4], ["-", "--", ":", "-."]):
-            subset = filtered_data[var_name].loc[p_start:p_end].dropna()
-            
-            if len(subset) > 0:
-                x_sorted = np.sort(subset)
-                y_values = np.linspace(0, 1, len(subset))
-                axs2[i].plot(x_sorted, y_values, label=var_name, linestyle=ls, lw=1.5)
-        
-        axs2[i].set_title(f"Fog ECDF: {period_name}")
+        axs1[i].axvline(FOG_THRESH, color='k', linestyle=':', alpha=0.5, label='Fog Threshold')
+        axs2[i].set_title(f"Visibility ECDF (Fog Zoom): {period_name}")
         axs2[i].set_xlabel("Visibility (km)")
-        axs2[i].set_ylabel("F(x)")
-        axs2[i].set_xlim(0, FOG_THRESH*1.25)
-        axs2[i].grid(True, alpha=0.3)
+        axs2[i].set_ylabel("Cumulative Probability")
+        
+        axs2[i].set_xlim(0, FOG_THRESH * 1.5) 
+        axs2[i].grid(True, which='both', alpha=0.3)
         axs2[i].axvspan(0, FOG_THRESH, color='yellow', alpha=0.1)
-    
+        axs2[i].axvline(FOG_THRESH, color='k', linestyle=':', alpha=0.5, label='Fog Threshold')
+
     axs1[0].legend()
+    axs2[0].legend()
     plt.tight_layout()
 
 def plot_fog_events(df_eval, model_data, FOG_THRESH, event_lib=None, truth=None, debug=False):
