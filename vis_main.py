@@ -4,9 +4,11 @@ import re
 import vis_functions as vf
 import importlib         # look for changes in vis_functions without
 importlib.reload(vf)     # having to reload the kernel
+import numpy as np
+import matplotlib.pyplot as plt
 import xarray as xr
 import pandas as pd
-import numpy as np
+import seaborn as sns
 
 #%% PREPROCESS DATASETS
 flag = 0
