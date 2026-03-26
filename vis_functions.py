@@ -37,7 +37,38 @@ def TAF_parser(taf_string):
         # print(f"{trend_type}: {trend_vis}, from {start_hour:02d}:00 to {end_hour:02d}:00")
     return taf
 
-def df_TAF_gen(taf_table, time_vec, taf_day0):
+def df_TAF_gen(taf_table, time_vec):
+    """
+    Generates a DataFrame of TAF visibility data by parsing TAF strings and extracting
+    base visibility, BECMG trends (with linear interpolation), and TEMPO/PROB variations.
+
+    Parameters
+    ----------
+    taf_table : pd.DataFrame
+        DataFrame containing 'TAF Oden' column (raw TAF strings) and 'Date' column 
+        (in format 'M/D/YYYY', e.g., '8/17/2025').
+    time_vec : pd.DatetimeIndex
+        The time index for the output DataFrame (hourly or sub-hourly timestamps).
+
+    Returns
+    -------
+    df : pd.DataFrame
+        DataFrame indexed by time_vec with columns:
+        - 'base': Base visibility from TAF (km)
+        - 'tempo': TEMPO trend visibility (km)
+        - 'becmg': BECMG trend visibility (km)
+        - 'prob30': PROB30 trend visibility (km)
+        - 'prob40': PROB40 trend visibility (km)
+        - 'main_vis': Primary visibility scenario (base with BECMG interpolation applied)
+        - 'is_valid': Boolean indicating if a TAF was active at that time
+
+    Notes
+    -----
+    - BECMG trends are interpolated linearly from current to target visibility.
+    - TEMPO and PROB trends are assigned as-is (no interpolation).
+    - Visibility values are in kilometers (km).
+    - Missing or invalid TAF strings are skipped with error logging.
+    """
     columns = ['base','tempo','becmg',"prob30","prob40", "main_vis", "is_valid"]
     df = pd.DataFrame(np.nan, index=time_vec, columns=columns)
     df['is_valid'] = False 
@@ -235,7 +266,21 @@ def get_metrics(forecast_bool, obs_bool):
 
 def compute_all_metrics(truth, event_library):
     """
-    Computes metrics for all entries in the event library.
+    Computes standard binary verification metrics for all forecasts in the event library.
+
+    Parameters
+    ----------
+    truth : pd.Series (bool)
+        Boolean series indicating observed events.
+    event_library : dict
+        Dictionary mapping forecast names to boolean event series.
+        { 'ModelName': pd.Series(bool), ... }
+
+    Returns
+    -------
+    metrics_df : pd.DataFrame
+        DataFrame with models/forecasters as rows and metrics (POD, FAR, Bias, CSI, Hits, Misses) 
+        as columns.
     """
     all_metrics = {}
     for name, event_series in event_library.items():
@@ -246,7 +291,20 @@ def compute_all_metrics(truth, event_library):
 
 def plot_metrics_summary(metrics_df):
     """
-    Splits metrics into two plots: Ratios (0-1) and Absolute Counts.
+    Visualizes verification metrics as two subplots: ratios and absolute counts.
+
+    Parameters
+    ----------
+    metrics_df : pd.DataFrame
+        DataFrame output from compute_all_metrics with models as rows and 
+        metrics (POD, FAR, CSI, Bias, Hits, Misses) as columns.
+
+    Returns
+    -------
+    fig1 : matplotlib.figure.Figure
+        Figure containing bar plot of POD, FAR, CSI, and Bias (0-1 scale).
+    fig2 : matplotlib.figure.Figure
+        Figure containing bar plot of absolute hit and miss counts.
     """
     # 1. Plot Ratios (POD, FAR, CSI, Bias)
     ratios = metrics_df[['POD', 'FAR', 'CSI', 'Bias']]
@@ -264,18 +322,32 @@ def plot_metrics_summary(metrics_df):
     ax2.grid(axis='y', linestyle=':', alpha=0.6)
     return fig1, fig2
 
-def get_evaluation_library(df, model_dict, obs_series, p_thresh = 0.0,fog_thresh=1.0):
+def get_evaluation_library(df, model_dict, obs_series, p_thresh=0.0, fog_thresh=1.0):
     """
     Creates a standardized library of boolean event series for all models and the forecaster.
-    
+
     Parameters
     ----------
     df : pd.DataFrame
-        Contains the forecaster 'p_event' column.
+        TAF DataFrame containing the 'p_event' column (forecaster probabilities).
     model_dict : dict
-        { 'Name': pd.Series(vis_km) }
+        Dictionary mapping model names to visibility series { 'Name': pd.Series(vis_km) }.
     obs_series : pd.Series
-        Visibility observations in km.
+        Observed visibility time series (km).
+    p_thresh : float, optional
+        Probability threshold for defining forecaster event, by default 0.0.
+        Forecaster event occurs when p_event > p_thresh.
+    fog_thresh : float, optional
+        Visibility threshold for defining fog event (km), by default 1.0.
+        Event occurs when visibility < fog_thresh.
+
+    Returns
+    -------
+    truth : pd.Series (bool)
+        Boolean series indicating observed fog events.
+    event_library : dict
+        Dictionary mapping forecast names to boolean event series.
+        { 'Forecaster': pd.Series(bool), 'ModelName': pd.Series(bool), ... }
     """
     # 1. Start with the observations (Truth)
     truth = (obs_series < fog_thresh)
@@ -283,7 +355,7 @@ def get_evaluation_library(df, model_dict, obs_series, p_thresh = 0.0,fog_thresh
     # 2. Build the Event Library
     event_library = {}
     
-    # Add Forecaster (treating P > 0 as an event)
+    # Add Forecaster (treating P > p_thresh as an event)
     event_library['Forecaster'] = (df['p_event'] > p_thresh)
     
     # Add all numerical models
@@ -309,11 +381,10 @@ def evaluate_models(model_dict, obs_series, forecaster_p_series, fog_thresh=1.0)
 
     Returns
     -------
-    results_df : pd.DataFrame
+    results : pd.DataFrame
         DataFrame of metrics, indexed by model name.
     """
-    import pandas as pd
-    
+
     # Initialize results container
     results = {}
     
@@ -329,10 +400,34 @@ def evaluate_models(model_dict, obs_series, forecaster_p_series, fog_thresh=1.0)
     # Return as a clean DataFrame (Models as rows, Metrics as columns)
     return pd.DataFrame(results).T
 
-def plot_vis_summary(df, vis_obs, vis_mod1, vis_mod2, fog_thresh,start_date=None, end_date=None):
+def plot_vis_summary(df, vis_obs, vis_mod1, vis_mod2, fog_thresh, start_date=None, end_date=None):
     """
     Plots a log-scale time series comparison of TAF scenarios, 
     model output, and observations.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        TAF DataFrame containing 'worst_vis', 'best_vis', 'main_scenario', and 'is_valid' columns.
+    vis_obs : pd.Series
+        Observed visibility time series (km).
+    vis_mod1 : pd.Series
+        First model visibility time series (km).
+    vis_mod2 : pd.Series
+        Second model visibility time series (km).
+    fog_thresh : float
+        Visibility threshold for fog definition (km).
+    start_date : str or pd.Timestamp, optional
+        Start date for the plot window. If None, uses full time range.
+    end_date : str or pd.Timestamp, optional
+        End date for the plot window. If None, uses full time range.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object containing the log-scale visibility comparison plot.
+    ax : matplotlib.axes.Axes
+        Axes object for further customization.
     """
     obs_series = vis_obs.reindex(df.index, method='nearest')
     mod_series1 = vis_mod1.reindex(df.index, method='nearest')
@@ -351,11 +446,11 @@ def plot_vis_summary(df, vis_obs, vis_mod1, vis_mod2, fog_thresh,start_date=None
     ax.fill_between(plot_df.index, plot_df['worst_vis'], plot_df['best_vis'], 
                     color='lightgray', alpha=0.5, label='TAF Uncertainty (TEMPO/PROB)')
     ax.plot(plot_df.index, plot_df['main_scenario'], color='black', linewidth=1.2, 
-            label='TAF Main (Base/BECMG)',marker="o")
+            label='TAF Main (Base/BECMG)', marker="o")
     ax.plot(plot_df.index, plot_mod1, color='blue', linestyle='--', linewidth=1.5, 
-            label='IFS Oper. model)')
+            label='IFS Oper. model')
     ax.plot(plot_df.index, plot_mod2, color='green', linestyle='--', linewidth=1.5, 
-            label='IFS lowLvlMean model)')
+            label='IFS lowLvlMean model')
     ax.plot(plot_df.index, plot_obs, color='crimson', linewidth=2, label='Oden Observations')
 
     ax.set_yscale('log')
@@ -372,12 +467,34 @@ def plot_vis_summary(df, vis_obs, vis_mod1, vis_mod2, fog_thresh,start_date=None
 
     ax.legend(loc='lower right', frameon=True, fontsize='small', ncol=2)
     plt.tight_layout()
-    plt.show()
+    return fig, ax
 
 def calculate_stacked_probabilities(df):
     """
     Groups TAF scenarios and trends into discrete visibility bins to create 
     a "Forecaster Ensemble" probability distribution.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        TAF DataFrame containing 'main_scenario', 'tempo', 'prob30', 'prob40', 
+        and 'is_valid' columns.
+
+    Returns
+    -------
+    prob_df : pd.DataFrame
+        DataFrame indexed by time with columns for each visibility bin.
+        Each cell contains a probability (0.0 to 1.0) representing the likelihood 
+        of visibility falling within that bin, based on TAF scenarios and trends.
+        
+    Notes
+    -----
+    - Main scenario receives a base probability of 1.0.
+    - TEMPO trends add 0.1 probability weight.
+    - PROB30 trends add 0.3 probability weight.
+    - PROB40 trends add 0.4 probability weight.
+    - Probabilities are clipped to [0, 1] range.
+    - Invalid TAF periods are skipped (is_valid == False).
     """
     bins = [0, 0.15, 0.35, 0.6, 0.8, 1.5, 3.0, 5.0, 10.0]
     bin_names = ['<150m', '150-350m', '350-600m', '600-800m', '0.8-1.5km', '1.5-3km', '3-5km', '5-10km']
@@ -402,8 +519,30 @@ def calculate_stacked_probabilities(df):
 
 def plot_ens_meteogram(prob_df, model_dict, vis_obs, start_date, end_date, resample_freq='3H'):
     """
-    Plots TAF probabilities with multiple model rows below the probability stack.
-    model_dict : dict of {name: pd.Series(vis_km)}
+    Plots TAF probabilities as a stacked bar chart with model visibility rows below.
+
+    Parameters
+    ----------
+    prob_df : pd.DataFrame
+        DataFrame indexed by time with columns for each visibility bin.
+        Each cell contains a probability (0.0 to 1.0) for that bin.
+    model_dict : dict
+        Dictionary mapping model names to visibility series { 'ModelName': pd.Series(vis_km) }.
+    vis_obs : pd.Series
+        Observed visibility time series (km).
+    start_date : str or pd.Timestamp
+        Start date for the plot window.
+    end_date : str or pd.Timestamp
+        End date for the plot window.
+    resample_freq : str, optional
+        Resampling frequency for aggregating probabilities, by default '3H'.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object containing the meteogram.
+    ax : matplotlib.axes.Axes
+        Axes object for further customization.
     """
     start_date, end_date = str(start_date), str(end_date)
     p_sub = prob_df.loc[start_date:end_date].resample(resample_freq).mean()
@@ -461,6 +600,24 @@ def plot_performance_diagram(pods, fars, labels, colors=None):
     Plots a Roebber (2009) Performance Diagram, showing POD vs Success Ratio 
     with CSI contours and Bias lines. 
     Ideal forecasts cluster toward the top-right corner.
+
+    Parameters
+    ----------
+    pods : array-like
+        Probability of Detection values (0 to 1) for each forecast/model.
+    fars : array-like
+        False Alarm Rate values (0 to 1) for each forecast/model.
+    labels : list of str
+        Names/labels for each forecast/model to display in the legend.
+    colors : array-like, optional
+        RGB or named colors for each point. If None, uses tab10 colormap.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object containing the performance diagram.
+    ax : matplotlib.axes.Axes
+        Axes object for further customization.
     """
     x = np.linspace(0.001, 1, 100)
     y = np.linspace(0.001, 1, 100)
@@ -488,16 +645,34 @@ def plot_performance_diagram(pods, fars, labels, colors=None):
     ax.set_ylim(0, 1)
     ax.set_xlabel('Success Ratio (1 - FAR)', fontsize=14)
     ax.set_ylabel('Probability of Detection (POD)', fontsize=14)
-    # ax.set_title('Visibility Performance: TAF vs. Model Parametrizations', fontweight='bold')
     ax.grid(True, linestyle=':', alpha=0.4)
-    ax.legend(loc='lower right', frameon=True, prop={'size': 13})
+    ax.legend(loc='lower right', frameon=True, prop={'size': 7}, ncols=2)
     plt.tight_layout()
-    plt.show()
+    return fig, ax
 
 def plot_taf_window(df, fog_thresh, start_time, end_time):
     """
     Plots the Main, Best, and Worst TAF scenarios for a specific time window.
+    
     Useful for detailed case studies of specific fog events.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        TAF DataFrame containing 'best_vis', 'worst_vis', and 'main_vis' columns.
+    fog_thresh : float
+        Visibility threshold for fog definition (km).
+    start_time : str or pd.Timestamp
+        Start time for the plot window.
+    end_time : str or pd.Timestamp
+        End time for the plot window.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object containing the TAF scenarios plot.
+    ax : matplotlib.axes.Axes
+        Axes object for further customization.
     """
     fig, ax = plt.subplots(figsize=(12, 6), dpi=100)
     pdf = df.loc[start_time:end_time]
@@ -526,7 +701,20 @@ def plot_taf_window(df, fog_thresh, start_time, end_time):
 def plot_taf_components(df):
     """
     Visualizes raw TAF components (Base, TEMPO, BECMG) as recorded.
+    
     Useful for assessing how forecasters utilize specific TAF change-indicators.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        TAF DataFrame containing 'base', 'tempo', and 'becmg' columns.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object containing the TAF components plot.
+    ax : matplotlib.axes.Axes
+        Axes object for further customization.
     """
     fig, ax = plt.subplots(figsize=(15, 5))
     ax.plot(df.index, df['base'], label='Base Visibility', color='royalblue', lw=1.5)
@@ -549,13 +737,23 @@ def plot_taf_components(df):
 def apply_diurnal_mask(df, start_hour, end_hour, day_only=True):
     """
     Filters a DataFrame to only include specific hours of the day.
-    
-    Parameters:
+
+    Parameters
+    ----------
     df : pd.DataFrame or pd.Series
-    start_hour : int (0-23)
-    end_hour : int (0-23)
-    day_only : bool (If True, keeps hours between start/end. 
-                     If False, keeps hours outside that range).
+        Input data with datetime index.
+    start_hour : int
+        Start hour (0-23) for the time window.
+    end_hour : int
+        End hour (0-23) for the time window.
+    day_only : bool, optional
+        If True, keeps hours between start_hour and end_hour (inclusive).
+        If False, keeps hours outside that range (night hours), by default True.
+
+    Returns
+    -------
+    df : pd.DataFrame or pd.Series
+        Filtered data with NaN values outside the specified time window.
     """
     # Extract the hour from the datetime index
     hours = df.index.hour
@@ -571,7 +769,34 @@ def apply_diurnal_mask(df, start_hour, end_hour, day_only=True):
 
 def plot_ensemble_spaghetti(ens_xr, obs_series, start_t, end_t, threshold=0.8):
     """
-    Plots individual ensemble members as 'spaghetti' to show forecast spread.
+    Plots individual ensemble members as 'spaghetti' lines to visualize forecast spread
+    and uncertainty relative to observations.
+
+    Parameters
+    ----------
+    ens_xr : xarray.DataArray
+        Ensemble visibility data with dimensions (time, number).
+        Each 'number' represents an individual ensemble member.
+    obs_series : pd.Series
+        Observed visibility time series (km), indexed by datetime.
+    start_t : str or pd.Timestamp
+        Start time for the plot window.
+    end_t : str or pd.Timestamp
+        End time for the plot window.
+    threshold : float, optional
+        Visibility threshold for fog definition (km), by default 0.8.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object containing the spaghetti plot.
+    ax : matplotlib.axes.Axes
+        Axes object for further customization.
+
+    Notes
+    -----
+    Individual ensemble members are plotted as thin, semi-transparent gray lines.
+    The ensemble median is overlaid in black, and observations in red.
     """
     import matplotlib.pyplot as plt
     
@@ -605,13 +830,51 @@ def plot_ensemble_spaghetti(ens_xr, obs_series, start_t, end_t, threshold=0.8):
     return fig, ax
 
 def compute_brier_score(f, o):
-    # f = probabilities (0 to 1), o = binary observations (0 or 1)
+    """
+    Computes the Brier Score, a measure of forecast probability accuracy.
     
+    The Brier Score is the mean squared difference between forecasted probabilities 
+    and observed binary outcomes. Lower values indicate better calibration.
+    
+    Parameters
+    ----------
+    f : pd.Series
+        Forecasted probabilities (0.0 to 1.0).
+    o : pd.Series
+        Observed binary events (0 or 1).
+    
+    Returns
+    -------
+    brier_score : float
+        Mean squared error between forecasts and observations.
+    """
     # Ensure no NaNs from your masks interfere
     valid_mask = f.notna() & o.notna()
     return ((f[valid_mask] - o[valid_mask])**2).mean()
 
 def plot_reliability_diagram(prob_forecast, obs_binary, n_bins=10):
+    """
+    Plots a reliability diagram showing forecast calibration.
+    
+    Compares forecasted probabilities against observed frequencies binned into 
+    discrete probability intervals. Perfect calibration lies on the diagonal.
+
+    Parameters
+    ----------
+    prob_forecast : pd.Series
+        Forecasted probabilities (0.0 to 1.0).
+    obs_binary : pd.Series
+        Observed binary events (0 or 1).
+    n_bins : int, optional
+        Number of probability bins for calibration analysis, by default 10.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object containing the reliability diagram.
+    ax : matplotlib.axes.Axes
+        Axes object for further customization.
+    """
     # prob_forecast: 0.0 to 1.0 (Ens_Prob)
     # obs_binary: 0 or 1 (obs_event)
     
@@ -636,8 +899,32 @@ def plot_reliability_diagram(prob_forecast, obs_binary, n_bins=10):
 
 def plot_talagrand_histogram(ens_data, obs_data):
     """
-    ens_data: xarray DataArray with dims (time, number)
-    obs_data: pandas Series aligned to time
+    Plots a Talagrand (rank) histogram to assess ensemble calibration.
+    
+    The Talagrand histogram shows how often observations fall within the range 
+    of ensemble members. A perfectly calibrated ensemble produces a flat histogram.
+    Bias toward low ranks indicates overconfidence; bias toward high ranks 
+    indicates the ensemble is too dispersed.
+
+    Parameters
+    ----------
+    ens_data : xarray.DataArray
+        Ensemble visibility data with dimensions (time, number).
+        Each 'number' represents an individual ensemble member.
+    obs_data : pd.Series
+        Observed visibility time series (km), indexed by datetime.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object containing the rank histogram.
+    ax : matplotlib.axes.Axes
+        Axes object for further customization.
+        
+    Notes
+    -----
+    The rank is defined as the number of ensemble members with values less than 
+    the observation. A uniform distribution across all ranks indicates good calibration.
     """
     import matplotlib.pyplot as plt
     import numpy as np
@@ -662,21 +949,21 @@ def plot_talagrand_histogram(ens_data, obs_data):
 
     # 4. Plotting
     n_members = len(ens_data.number)
-    plt.figure(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(8, 5), dpi=100)
     
     # We want bins for each possible rank (0 to n_members)
-    counts, bins, _ = plt.hist(ranks, bins=np.arange(n_members + 2) - 0.5, 
-                               density=True, edgecolor='black', alpha=0.7, color='skyblue')
+    ax.hist(ranks, bins=np.arange(n_members + 2) - 0.5, 
+            density=True, edgecolor='black', alpha=0.7, color='skyblue')
     
     # The "Ideal" line for a perfectly calibrated ensemble
-    plt.axhline(1 / (n_members + 1), color='red', linestyle='--', lw=2, label='Perfectly Calibrated')
+    ax.axhline(1 / (n_members + 1), color='red', linestyle='--', lw=2, label='Perfectly Calibrated')
     
-    plt.xlabel('Rank (Number of members < Observation)')
-    plt.ylabel('Relative Frequency')
-    plt.title(f'Talagrand Diagram (Rank Histogram)\nN = {n_members} members')
-    plt.xticks(range(0, n_members + 1, max(1, n_members // 10)))
-    plt.legend()
-    plt.grid(axis='y', alpha=0.3)
-    plt.show()
+    ax.set_xlabel('Rank (Number of members < Observation)', fontsize=12)
+    ax.set_ylabel('Relative Frequency', fontsize=12)
+    ax.set_title(f'Talagrand Diagram (Rank Histogram)\nN = {n_members} members', fontweight='bold')
+    ax.set_xticks(range(0, n_members + 1, max(1, n_members // 10)))
+    ax.legend(frameon=True)
+    ax.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
     
-    return ranks
+    return fig, ax
