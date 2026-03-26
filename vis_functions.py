@@ -1032,3 +1032,72 @@ def plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, FOG_THRESH)
     
     axs1[0].legend()
     plt.tight_layout()
+
+def plot_fog_events(df_eval, model_data, FOG_THRESH, event_lib=None, truth=None, debug=False):
+    """
+    Plot observations and models with fog events and TAF validity window.
+    
+    Parameters:
+    -----------
+    df_eval : pd.DataFrame
+        Evaluation dataframe containing obs_vis and is_valid columns
+    model_data : dict
+        Dictionary of model forecast series
+    FOG_THRESH : float
+        Fog threshold in km
+    event_lib : dict, optional
+        Event library for debug output
+    truth : pd.Series, optional
+        Truth series for debug output
+    debug : bool
+        Whether to print debugging information
+    """
+    fig, ax = plt.subplots(figsize=(16, 8))
+    ax.plot(df_eval.index, df_eval['obs_vis'], label='Observed Vis (km)', color='black')
+    for model_name, model_series in model_data.items():
+        ax.plot(model_series.index, model_series, label=f'{model_name}', lw=0.7)
+
+    # Fog threshold
+    ax.axhline(FOG_THRESH, color='red', linestyle='--', label='Fog Threshold')
+
+    # Highlight TAF valid times
+    ax.fill_between(
+        df_eval.index,
+        0,
+        df_eval['obs_vis'].max(),
+        where=~df_eval['is_valid'],
+        color='lightgray',
+        alpha=0.5,
+        label='No TAF'
+    )
+
+    # Highlight fog events (ONLY within mask)
+    fog_masked = (df_eval['obs_vis'] < FOG_THRESH) & (df_eval['is_valid'])
+
+    ax.scatter(
+        df_eval.index[fog_masked],
+        df_eval['obs_vis'][fog_masked],
+        color='red',
+        s=60,
+        label='Fog events (used in metrics)',
+        zorder=5
+    )
+
+    ax.set_title("Visibility with Fog Events and TAF Validity Window")
+    ax.set_ylabel("Visibility (km)")
+    ax.set_ylim(-0.1, 2)
+    ax.legend(prop=dict(size=7), ncol=2, loc="upper left")
+    ax.grid(alpha=0.3)
+
+    if debug and event_lib is not None and truth is not None:
+        model = event_lib['IFS']
+        obs_events = truth[truth == True]
+        print("Checking each observed fog event:\n")
+        for t in obs_events.index:
+            print(f"Time: {t}")
+            print("Obs:", truth.loc[t])
+            if t in model.index:
+                print("Model:", model.loc[t])
+            else:
+                print("Model: MISSING TIMESTAMP")
+            print("-" * 30)
