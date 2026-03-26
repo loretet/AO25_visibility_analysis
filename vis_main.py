@@ -39,9 +39,16 @@ MODEL_24h = False  # Whether to evaluate the full 24h forecast or just the TAF v
                   #   True: the model gets evaluated over 24h, while the forecaster only on its active time
                   #   False: both model and forecaster are evaluated only on the TAFs validity window. Better imho
 
-START_DATE = '2025-08-11'
-END_DATE = '2025-09-16'
-TIME_RES = 'min'  # Analysis resolution (minutes, hours..)
+# Period 1
+START_DATE = '2025-08-12 00:00'
+# END_DATE = '2025-08-16 12:00'
+# Period 2
+# START_DATE = '2025-08-16 13:00'
+# END_DATE = '2025-09-03 00:00'
+# Period 3:
+# START_DATE = '2025-09-03 01:00'
+END_DATE = '2025-09-16 00:00'
+TIME_RES = 'h'  # Analysis resolution (minutes, hours..)
 
 # File Paths
 TAF_PATH = '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/AO25_TAFs.xlsx'
