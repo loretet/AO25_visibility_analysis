@@ -329,29 +329,33 @@ def evaluate_models(model_dict, obs_series, forecaster_p_series, fog_thresh=1.0)
     # Return as a clean DataFrame (Models as rows, Metrics as columns)
     return pd.DataFrame(results).T
 
-def plot_vis_summary(df, vis_obs, vis_mod, fog_thresh,start_date=None, end_date=None):
+def plot_vis_summary(df, vis_obs, vis_mod1, vis_mod2, fog_thresh,start_date=None, end_date=None):
     """
     Plots a log-scale time series comparison of TAF scenarios, 
     model output, and observations.
     """
     obs_series = vis_obs.reindex(df.index, method='nearest')
-    mod_series = vis_mod.reindex(df.index, method='nearest')
+    mod_series1 = vis_mod1.reindex(df.index, method='nearest')
+    mod_series2 = vis_mod2.reindex(df.index, method='nearest')
     
     fig, ax = plt.subplots(figsize=(14, 7), dpi=100)
     
     if start_date and end_date:
         plot_df = df.loc[start_date:end_date]
         plot_obs = obs_series.loc[start_date:end_date]
-        plot_mod = mod_series.loc[start_date:end_date]
+        plot_mod1 = mod_series1.loc[start_date:end_date]
+        plot_mod2 = mod_series2.loc[start_date:end_date]
     else:
-        plot_df, plot_obs, plot_mod = df, obs_series, mod_series
+        plot_df, plot_obs, plot_mod1, plot_mod2 = df, obs_series, mod_series1, mod_series2
 
     ax.fill_between(plot_df.index, plot_df['worst_vis'], plot_df['best_vis'], 
                     color='lightgray', alpha=0.5, label='TAF Uncertainty (TEMPO/PROB)')
     ax.plot(plot_df.index, plot_df['main_scenario'], color='black', linewidth=1.2, 
-            label='TAF Main (Base/BECMG)', drawstyle='steps-post')
-    ax.plot(plot_df.index, plot_mod, color='blue', linestyle='--', linewidth=1.5, 
-            label='ECMWF Model (IFS Oper)', drawstyle='steps-post')
+            label='TAF Main (Base/BECMG)',marker="o")
+    ax.plot(plot_df.index, plot_mod1, color='blue', linestyle='--', linewidth=1.5, 
+            label='IFS Oper. model)')
+    ax.plot(plot_df.index, plot_mod2, color='green', linestyle='--', linewidth=1.5, 
+            label='IFS lowLvlMean model)')
     ax.plot(plot_df.index, plot_obs, color='crimson', linewidth=2, label='Oden Observations')
 
     ax.set_yscale('log')
