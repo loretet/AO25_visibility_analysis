@@ -9,6 +9,7 @@
 #%% Imports
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+plt.rcParams['figure.dpi'] = 300
 import pandas as pd
 import numpy as np
 from metar_taf_parser.parser.parser import TAFParser
@@ -978,8 +979,10 @@ def plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, FOG_THRESH)
         the fog zone and set x-axis limits for the ECDF plots.
     Returns
     -------
-    None
-        Displays a matplotlib figure with 6 subplots (2 rows × 3 columns).
+    fig : matplotlib.figure.Figure
+        Figure object containing the reliability diagram.
+    ax : matplotlib.axes.Axes
+        Axes object for further customization.
     """
     raw_data = {}
     for v in quant_vars:
@@ -1027,6 +1030,7 @@ def plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, FOG_THRESH)
     axs1[0].legend()
     axs2[0].legend()
     plt.tight_layout()
+    return fig,axs
 
 def plot_fog_events(df_eval, model_data, FOG_THRESH, event_lib=None, truth=None, debug=False):
     """
