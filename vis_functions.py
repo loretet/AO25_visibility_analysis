@@ -308,6 +308,7 @@ def plot_metrics_summary(metrics_df):
     ax1.set_ylim(0, 1.2) # Bias might go > 1, so 1.2 is a safe cap
     ax1.set_title('Performance Ratios (POD, FAR, CSI)')
     ax1.grid(axis='y', linestyle=':', alpha=0.6)
+    ax1.set_xticklabels(ax1.get_xticklabels(), rotation=30, ha='right')
     
     # 2. Plot Absolute Counts (Hits, Misses)
     counts = metrics_df[['Hits', 'Misses']]
@@ -315,6 +316,7 @@ def plot_metrics_summary(metrics_df):
     counts.plot(kind='bar', ax=ax2, rot=0, edgecolor='black', alpha=0.8)
     ax2.set_title('Absolute Frequency (Hits vs Misses)')
     ax2.grid(axis='y', linestyle=':', alpha=0.6)
+    ax2.set_xticklabels(ax1.get_xticklabels(), rotation=30, ha='right')
     return fig1, fig2
 
 def get_evaluation_library(df, model_dict, obs_series, p_thresh=0.0, fog_thresh=1.0):
