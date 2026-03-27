@@ -183,7 +183,7 @@ if debug:
 
 # 1. Get the raw events (Initial 24h baseline for all)
 truth_full, event_lib = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis'],
-                                                   p_thresh=FC_THRESH, fog_thresh=FOG_THRESH)
+                                                   FC_THRESH, FOG_THRESH, HIGHER_THAN_FOG_THRESH)
 
 # Define the Forecaster's active window mask
 mask = (df_eval['is_valid'] == True)
