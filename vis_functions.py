@@ -182,7 +182,7 @@ def calculate_scenarios(df):
 
 def assign_event_probabilities(df, fog_thresh=1.0, higher_than_fog_thresh=False):
     """
-    Maps TAF categorical trends to numerical event probabilities $P(\text{Vis} < v_{thresh})$.
+    Maps TAF categorical trends to numerical event probabilities $P(\text{Vis} >< fog_{thresh})$.
     Priority follows: Main (100%) > PROB40 (40%) > PROB30 (30%) > TEMPO (10%).
 
     Parameters
@@ -197,28 +197,34 @@ def assign_event_probabilities(df, fog_thresh=1.0, higher_than_fog_thresh=False)
     df : pd.DataFrame
         DataFrame with the 'p_event' column added.
     """
-    df['p_event'] = 0.0
-    
-    # Priority: Main (100%) > PROB40 (40%) > PROB30 (30%) > TEMPO (10%)  
-    if higher_than_fog_thresh: 
-        def mask(df,group):
-            return  df[group] > fog_thresh
+
+    # Initialize based on the Main Scenario
+    if higher_than_fog_thresh:
+        # Event is "Clear": Probability is 1.0 if main > threshold, else 0.0
+        df['p_event'] = (df['main_scenario'] > fog_thresh).astype(float)
     else:
-        def mask(df,group):
-            return  df[group] <= fog_thresh
+        # Event is "Fog": Probability is 1.0 if main <= threshold, else 0.0
+        df['p_event'] = (df['main_scenario'] <= fog_thresh).astype(float)
+
+    # Process Trends (TEMPO, PROB30, PROB40)
+    for col, weight in [('tempo', 0.1), ('prob30', 0.3), ('prob40', 0.4)]:
+        mask_trend_exists = df[col].notna()
         
-    mask_tempo = mask(df,"tempo")
-    df.loc[mask_tempo, 'p_event'] = np.maximum(df.loc[mask_tempo, 'p_event'], 0.1)
+        if higher_than_fog_thresh:
+            # If a TEMPO/PROB says FOG: subtract probability
+            mask_trend_is_fog = df[col] <= fog_thresh
+            change_indices = mask_trend_exists & mask_trend_is_fog
+            df.loc[change_indices, 'p_event'] -= weight
+        else:
+            # If a TEMPO/PROB says FOG: add probability
+            mask_trend_is_fog = df[col] <= fog_thresh
+            change_indices = mask_trend_exists & mask_trend_is_fog
+            df.loc[change_indices, 'p_event'] += weight
+
+    # Ensure probabilities stay within [0, 1]
+    df['p_event'] = df['p_event'].clip(0.0, 1.0)
     
-    mask_p30 = mask(df,"prob30")
-    df.loc[mask_p30, 'p_event'] = np.maximum(df.loc[mask_p30, 'p_event'], 0.3)
-    
-    mask_p40 = mask(df,"prob40")
-    df.loc[mask_p40, 'p_event'] = np.maximum(df.loc[mask_p40, 'p_event'], 0.4)
-    
-    mask_main = mask(df,"main_scenario")
-    df.loc[mask_main, 'p_event'] = 1.0 # Main always takes priority if it's below thresh
-    
+    # Invalidate where no TAF exists
     df.loc[df['is_valid'] == False, 'p_event'] = np.nan
     return df
 
@@ -367,45 +373,12 @@ def get_evaluation_library(df, model_dict, obs_series, p_thresh=0.0, fog_thresh=
     
     # Add all numerical models
     for name, vis_series in model_dict.items():
-        event_library[name] = (vis_series < fog_thresh)
+        if higher_than_fog_thresh:
+            event_library[name] = (vis_series > fog_thresh)
+        else:
+            event_library[name] = (vis_series <= fog_thresh)
         
     return truth, event_library
-
-def evaluate_models(model_dict, obs_series, forecaster_p_series, fog_thresh=1.0):
-    """
-    Computes metrics for N models and the Forecaster simultaneously.
-
-    Parameters
-    ----------
-    model_dict : dict
-        Dictionary { 'ModelName': pd.Series(vis_data_km) }
-    obs_series : pd.Series
-        Oden observations (visibility in km).
-    forecaster_p_series : pd.Series
-        Forecaster probability series (P > 0 implies fog event).
-    fog_thresh : float
-        Visibility threshold for fog definition (km).
-
-    Returns
-    -------
-    results : pd.DataFrame
-        DataFrame of metrics, indexed by model name.
-    """
-
-    # Initialize results container
-    results = {}
-    
-    # 1. Compute Forecaster Metrics
-    obs_event = (obs_series < fog_thresh)
-    results['Forecaster'] = get_metrics(forecaster_p_series > 0, obs_event)
-    
-    # 2. Compute Model Metrics
-    for name, vis_series in model_dict.items():
-        is_fog = (vis_series < fog_thresh)
-        results[name] = get_metrics(is_fog, obs_event)
-    
-    # Return as a clean DataFrame (Models as rows, Metrics as columns)
-    return pd.DataFrame(results).T
 
 def plot_vis_summary(df, vis_obs, vis_mod1, vis_mod2, fog_thresh, start_date=None, end_date=None):
     """

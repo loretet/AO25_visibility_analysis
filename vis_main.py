@@ -4,6 +4,11 @@
 # Scripts for "Paper title"
 # by Authors...
 
+## TO DO:
+# - sanity check that POD(low vis) is not 1-POD(good vis)
+# - include "Forecaster conservative" into performances (like in paper_plot.py)
+# - reproduce performance diagrams with POD(good vis) and 1-FAR(good vis)
+
 #%% Imports
 import vis_functions as vf
 import importlib         # look for changes in vis_functions without
@@ -39,7 +44,7 @@ if preproc:
 # Settings
 FOG_THRESH = 0.8  # km  (0.8 km Cassel Aero threshold, 1 km WMO threshold)
 HIGHER_THAN_FOG_THRESH = True  # if True, looks at windows of opportnity. If False, looks at low vis. events
-FC_THRESH = 0.5 # forecast threshold to check low vis event (0: low vis assumed even if only predicted by TEMPO group. 0.5: only BASE group)
+FC_THRESH = 0.0 # forecast threshold to check low vis event (0: low vis assumed even if only predicted by TEMPO group. 0.5: only BASE group)
 MODEL_24h = False  # Whether to evaluate the full 24h forecast or just the TAF validity times:
                   #   True: the model gets evaluated over 24h, while the forecaster only on its active time
                   #   False: both model and forecaster are evaluated only on the TAFs validity window. Better imho
@@ -110,8 +115,11 @@ with xr.open_dataset(ENS_PATH, decode_timedelta=True) as ds_ens:
         prob_fog = (ens_aligned <= FOG_THRESH).mean(dim='number').to_series().reindex(time_vec)
     
     # Create binary series: If prob > X%, we set vis to 0.0 (Fog), else 10.0 (Clear)
-    model_data['Ens_P20'] = pd.Series(np.where(prob_fog > 0.20, 0.0, 10.0), index=time_vec)
-    model_data['Ens_P30'] = pd.Series(np.where(prob_fog > 0.30, 0.0, 10.0), index=time_vec)
+    event_value = 10.0 if HIGHER_THAN_FOG_THRESH else 0.0
+    non_event_value = 0.0 if HIGHER_THAN_FOG_THRESH else 10.0
+
+    model_data['Ens_P20'] = pd.Series(np.where(prob_fog > 0.20, event_value, non_event_value), index=time_vec)
+    model_data['Ens_P30'] = pd.Series(np.where(prob_fog > 0.30, event_value, non_event_value), index=time_vec)
 
 # Process "persistent" forecaster data
 pers_ds = xr.open_dataset(PERS_PATH, decode_timedelta=True)
