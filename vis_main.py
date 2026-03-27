@@ -11,6 +11,8 @@ importlib.reload(vf)     # having to reload the kernel
 import numpy as np
 import xarray as xr
 import pandas as pd
+import matplotlib.pyplot as plt
+plt.rcParams['figure.dpi'] = 300
 
 #%% PREPROCESS DATASETS
 # Flags:
@@ -64,6 +66,8 @@ MODEL_PATHS = {
     'lowLvlSum': '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_diagnostic_lowLvlSum.nc',
 }
 
+PERS_PATH = "/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/AO2025_20250812-20250915_persistence_forecast.nc"
+
 ENS_PATH = '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_ens_oden_2025-08-11_2025-09-15_vis_day2.nc'
 
 #%% BASELINE DATA PREP
@@ -104,6 +108,11 @@ with xr.open_dataset(ENS_PATH, decode_timedelta=True) as ds_ens:
     # Create binary series: If prob > X%, we set vis to 0.0 (Fog), else 10.0 (Clear)
     model_data['Ens_P20'] = pd.Series(np.where(prob_fog > 0.20, 0.0, 10.0), index=time_vec)
     model_data['Ens_P30'] = pd.Series(np.where(prob_fog > 0.30, 0.0, 10.0), index=time_vec)
+
+# Process "persistent" forecaster data
+pers_ds = xr.open_dataset(PERS_PATH, decode_timedelta=True)
+model_data["pers_ds_median"] = np.clip(pers_ds.persistence_median.to_series() * 1e-3, 0, 10).reindex(time_vec)
+model_data["pers_ds_5min"] =np.clip(pers_ds.persistence_5min.to_series() * 1e-3, 0, 10).reindex(time_vec)
 
 # 2. Load and Process TAFs
 taf_table = pd.read_excel(TAF_PATH, header=1, sheet_name='Sheet1').reset_index(drop=True)
@@ -288,7 +297,8 @@ periods = [
     (('2025-09-03 01:00', '2025-09-16 00:00'), 'Period 3')
 ]
 quant_vars = ["visas_1min", "visas_5min", "visas_10min", "visas_15min", "visas_median"]
-vf.plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, FOG_THRESH)
+fig,_=vf.plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, FOG_THRESH)
+fig.suptitle("PDFs and CDFs for the observations processed using different quantiles",size=16,y=1.01)
 
 # 5. Ensemble spaghetti
 vf.plot_ensemble_spaghetti(ens_aligned, df_eval['obs_vis'], '2025-08-25', '2025-08-27')
