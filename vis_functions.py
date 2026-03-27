@@ -180,7 +180,7 @@ def calculate_scenarios(df):
     df['main_scenario'] = df['main_vis']
     return df
 
-def assign_event_probabilities(df, v_thresh=1.0):
+def assign_event_probabilities(df, fog_thresh=1.0, higher_than_fog_thresh=False):
     """
     Maps TAF categorical trends to numerical event probabilities $P(\text{Vis} < v_{thresh})$.
     Priority follows: Main (100%) > PROB40 (40%) > PROB30 (30%) > TEMPO (10%).
@@ -189,7 +189,7 @@ def assign_event_probabilities(df, v_thresh=1.0):
     ----------
     df : pd.DataFrame
         TAF DataFrame with scenario columns.
-    v_thresh : float, optional
+    fog_thresh : float, optional
         The visibility threshold (km) defining the "event" (e.g., fog), by default 1.0.
 
     Returns
@@ -199,17 +199,24 @@ def assign_event_probabilities(df, v_thresh=1.0):
     """
     df['p_event'] = 0.0
     
-    # Priority: Main (100%) > PROB40 (40%) > PROB30 (30%) > TEMPO (10%)    
-    mask_tempo = (df['tempo'] < v_thresh)
+    # Priority: Main (100%) > PROB40 (40%) > PROB30 (30%) > TEMPO (10%)  
+    if higher_than_fog_thresh: 
+        def mask(df,group):
+            return  df[group] > fog_thresh
+    else:
+        def mask(df,group):
+            return  df[group] <= fog_thresh
+        
+    mask_tempo = mask(df,"tempo")
     df.loc[mask_tempo, 'p_event'] = np.maximum(df.loc[mask_tempo, 'p_event'], 0.1)
     
-    mask_p30 = (df['prob30'] < v_thresh)
+    mask_p30 = mask(df,"prob30")
     df.loc[mask_p30, 'p_event'] = np.maximum(df.loc[mask_p30, 'p_event'], 0.3)
     
-    mask_p40 = (df['prob40'] < v_thresh)
+    mask_p40 = mask(df,"prob40")
     df.loc[mask_p40, 'p_event'] = np.maximum(df.loc[mask_p40, 'p_event'], 0.4)
     
-    mask_main = (df['main_scenario'] < v_thresh)
+    mask_main = mask(df,"main_scenario")
     df.loc[mask_main, 'p_event'] = 1.0 # Main always takes priority if it's below thresh
     
     df.loc[df['is_valid'] == False, 'p_event'] = np.nan
@@ -319,7 +326,7 @@ def plot_metrics_summary(metrics_df):
     ax2.set_xticklabels(ax1.get_xticklabels(), rotation=30, ha='right')
     return fig1, fig2
 
-def get_evaluation_library(df, model_dict, obs_series, p_thresh=0.0, fog_thresh=1.0):
+def get_evaluation_library(df, model_dict, obs_series, p_thresh=0.0, fog_thresh=1.0, higher_than_fog_thresh = False):
     """
     Creates a standardized library of boolean event series for all models and the forecaster.
 
@@ -347,7 +354,10 @@ def get_evaluation_library(df, model_dict, obs_series, p_thresh=0.0, fog_thresh=
         { 'Forecaster': pd.Series(bool), 'ModelName': pd.Series(bool), ... }
     """
     # 1. Start with the observations (Truth)
-    truth = (obs_series < fog_thresh)
+    if higher_than_fog_thresh:
+        truth = (obs_series > fog_thresh)
+    else:
+        truth = (obs_series <= fog_thresh)
     
     # 2. Build the Event Library
     event_library = {}
@@ -958,7 +968,7 @@ def plot_talagrand_histogram(ens_data, obs_data):
     
     return fig, ax
 
-def plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, FOG_THRESH):
+def plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, fog_thresh):
     """
     Generate probability density function (PDF) and cumulative distribution function (CDF) plots for visibility data.
     This function creates a 2x3 subplot grid displaying PDFs in the top row and empirical CDFs (ECDFs) 
@@ -1018,23 +1028,23 @@ def plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, FOG_THRESH)
 
         axs1[i].set_title(f"Visibility PDF: {period_name}")
         axs1[i].set_xlim(0, 20)
-        axs1[i].axvspan(0, FOG_THRESH, color='yellow', alpha=0.2, label='Fog Zone')
-        axs1[i].axvline(FOG_THRESH, color='k', linestyle=':', alpha=0.5, label='Fog Threshold')
+        axs1[i].axvspan(0, fog_thresh, color='yellow', alpha=0.2, label='Fog Zone')
+        axs1[i].axvline(fog_thresh, color='k', linestyle=':', alpha=0.5, label='Fog Threshold')
         axs2[i].set_title(f"Visibility ECDF (Fog Zoom): {period_name}")
         axs2[i].set_xlabel("Visibility (km)")
         axs2[i].set_ylabel("Cumulative Probability")
         
-        axs2[i].set_xlim(0, FOG_THRESH * 1.5) 
+        axs2[i].set_xlim(0, fog_thresh * 1.5) 
         axs2[i].grid(True, which='both', alpha=0.3)
-        axs2[i].axvspan(0, FOG_THRESH, color='yellow', alpha=0.1)
-        axs2[i].axvline(FOG_THRESH, color='k', linestyle=':', alpha=0.5, label='Fog Threshold')
+        axs2[i].axvspan(0, fog_thresh, color='yellow', alpha=0.1)
+        axs2[i].axvline(fog_thresh, color='k', linestyle=':', alpha=0.5, label='Fog Threshold')
 
     axs1[0].legend()
     axs2[0].legend()
     plt.tight_layout()
     return fig,axs
 
-def plot_fog_events(df_eval, model_data, FOG_THRESH, event_lib=None, truth=None, debug=False):
+def plot_fog_events(df_eval, model_data, FOG_THRESH, event_lib=None, truth=None, debug=False, higher_than_fog_thresh=False):
     """
     Plot observations and models with fog events and TAF validity window.
     
@@ -1073,7 +1083,10 @@ def plot_fog_events(df_eval, model_data, FOG_THRESH, event_lib=None, truth=None,
     )
 
     # Highlight fog events (ONLY within mask)
-    fog_masked = (df_eval['obs_vis'] < FOG_THRESH) & (df_eval['is_valid'])
+    if higher_than_fog_thresh:
+        fog_masked = (df_eval['obs_vis'] > FOG_THRESH) & (df_eval['is_valid'])
+    else:
+        fog_masked = (df_eval['obs_vis'] <= FOG_THRESH) & (df_eval['is_valid'])
 
     ax.scatter(
         df_eval.index[fog_masked],

@@ -38,6 +38,7 @@ if preproc:
 #%% SETTINGS AND PATHS
 # Settings
 FOG_THRESH = 0.8  # km  (0.8 km Cassel Aero threshold, 1 km WMO threshold)
+HIGHER_THAN_FOG_THRESH = True  # if True, looks at windows of opportnity. If False, looks at low vis. events
 FC_THRESH = 0.5 # forecast threshold to check low vis event (0: low vis assumed even if only predicted by TEMPO group. 0.5: only BASE group)
 MODEL_24h = False  # Whether to evaluate the full 24h forecast or just the TAF validity times:
                   #   True: the model gets evaluated over 24h, while the forecaster only on its active time
@@ -63,7 +64,7 @@ visas = "visas_5min"
 MODEL_PATHS = {
     'IFS': '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_oper_oden_20250811_20250915_day2_new_visibility_diagnostic_v1.nc',
     'lowLvlMean': '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_diagnostic_lowLvlMean.nc',
-    'lowLvlSum': '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_diagnostic_lowLvlSum.nc',
+    # 'lowLvlSum': '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_diagnostic_lowLvlSum.nc',
 }
 
 PERS_PATH = "/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/AO2025_20250812-20250915_persistence_forecast.nc"
@@ -103,7 +104,10 @@ with xr.open_dataset(ENS_PATH, decode_timedelta=True) as ds_ens:
     
     # 4. Probabilistic Triggers
     # Calculate fraction of members
-    prob_fog = (ens_aligned < FOG_THRESH).mean(dim='number').to_series().reindex(time_vec)
+    if HIGHER_THAN_FOG_THRESH:
+        prob_fog = (ens_aligned > FOG_THRESH).mean(dim='number').to_series().reindex(time_vec)
+    else:
+        prob_fog = (ens_aligned <= FOG_THRESH).mean(dim='number').to_series().reindex(time_vec)
     
     # Create binary series: If prob > X%, we set vis to 0.0 (Fog), else 10.0 (Clear)
     model_data['Ens_P20'] = pd.Series(np.where(prob_fog > 0.20, 0.0, 10.0), index=time_vec)
@@ -126,7 +130,7 @@ taf_table = taf_table.loc[mask].reset_index(drop=True)
 # START_DATE **must** match furst row of the Excel
 df_eval = vf.df_TAF_gen(taf_table, time_vec, debug)
 df_eval = vf.calculate_scenarios(df_eval)
-df_eval = vf.assign_event_probabilities(df_eval, v_thresh=FOG_THRESH)
+df_eval = vf.assign_event_probabilities(df_eval, FOG_THRESH, HIGHER_THAN_FOG_THRESH)
 
 # 3. Load and Align Observations
 ds_obs = xr.open_dataset(OBS_PATH, decode_timedelta=True)
@@ -152,13 +156,19 @@ if debug:
     print(f"Total time units with valid TAFs: {valid_times}")
     if valid_times == 0:
         print("WARNING: No TAFs were mapped to the time vector. Check START_DATE/Index alignment.")
-    mask = (vis_obs_series < FOG_THRESH) & (df_eval['is_valid'] == True)
-    low_vis_count = mask.sum()
-    print(f"Low visibility events in TAF validity window: {low_vis_count}")  
+    if HIGHER_THAN_FOG_THRESH:
+        mask = (vis_obs_series > FOG_THRESH) & (df_eval['is_valid'] == True)
+    else:   
+        mask = (vis_obs_series <= FOG_THRESH) & (df_eval['is_valid'] == True)
+    vis_count = mask.sum()
+    print(f"Low visibility events in TAF validity window: {vis_count}")  
 
 # Add to evaluation dataframe
 df_eval['obs_vis'] = vis_obs_series
-df_eval['obs_event'] = (df_eval['obs_vis'] < FOG_THRESH).astype(float)
+if HIGHER_THAN_FOG_THRESH:
+    df_eval['obs_event'] = (df_eval['obs_vis'] > FOG_THRESH).astype(float)
+else:
+    df_eval['obs_event'] = (df_eval['obs_vis'] <= FOG_THRESH).astype(float)
 
 # Debugging time 
 if debug:
@@ -237,7 +247,7 @@ bs_ens = vf.compute_brier_score(prob_fog, df_eval['obs_event'])
 print(f"Ensemble Brier Score: {bs_ens:.4f}")
 
 # 5. Check fog events in [START_DATE , END_DATE]
-vf.plot_fog_events(df_eval, model_data, FOG_THRESH, event_lib, truth, debug)
+vf.plot_fog_events(df_eval, model_data, FOG_THRESH, event_lib, truth, debug, HIGHER_THAN_FOG_THRESH)
 
 #%% PERFORMANCE VISUAL ANALYSIS
 
