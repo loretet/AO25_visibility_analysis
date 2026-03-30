@@ -211,19 +211,27 @@ def assign_event_probabilities(df, fog_thresh=1.0, higher_than_fog_thresh=False)
         df['p_event'] = (df['main_scenario'] <= fog_thresh).astype(float)
 
     # Process Trends (TEMPO, PROB30, PROB40)
+    # Process Trends (TEMPO, PROB30, PROB40)
     for col, weight in [('tempo', 0.1), ('prob30', 0.3), ('prob40', 0.4)]:
         mask_trend_exists = df[col].notna()
         
         if higher_than_fog_thresh:
-            # If a TEMPO/PROB says FOG: subtract probability
+            mask_trend_is_clear = df[col] > fog_thresh
             mask_trend_is_fog = df[col] <= fog_thresh
-            change_indices = mask_trend_exists & mask_trend_is_fog
-            df.loc[change_indices, 'p_event'] -= weight
+            
+            # If main was Fog (prob 0) but trend is Clear, ADD probability
+            df.loc[mask_trend_exists & mask_trend_is_clear & (df['main_scenario'] <= fog_thresh), 'p_event'] += weight
+            # If main was Clear (prob 1) but trend is Fog, SUBTRACT probability
+            df.loc[mask_trend_exists & mask_trend_is_fog & (df['main_scenario'] > fog_thresh), 'p_event'] -= weight
+            
         else:
-            # If a TEMPO/PROB says FOG: add probability
             mask_trend_is_fog = df[col] <= fog_thresh
-            change_indices = mask_trend_exists & mask_trend_is_fog
-            df.loc[change_indices, 'p_event'] += weight
+            mask_trend_is_clear = df[col] > fog_thresh
+            
+            # If main was Clear (prob 0) but trend is Fog, ADD probability
+            df.loc[mask_trend_exists & mask_trend_is_fog & (df['main_scenario'] > fog_thresh), 'p_event'] += weight
+            # If main was Fog (prob 1) but trend is Clear, SUBTRACT probability
+            df.loc[mask_trend_exists & mask_trend_is_clear & (df['main_scenario'] <= fog_thresh), 'p_event'] -= weight
 
     # Ensure probabilities stay within [0, 1]
     df['p_event'] = df['p_event'].clip(0.0, 1.0)
