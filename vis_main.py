@@ -326,11 +326,10 @@ fig_perf, axs_perf = vf.plot_multi_period_performance(
 )
 
 # 2. Visual Summary Bar Chart (Using Entire Cruise Data)
-print("Metrics summary with 5-min obs:")
-vf.plot_metrics_summary(final_res_5min)
-print("Metrics summary with 15-min obs:")
-vf.plot_metrics_summary(final_res_15min)
-
+fig1,fig2=vf.plot_metrics_summary(final_res_5min)
+[fig.suptitle("Metrics summary with 5-min obs") for fig in [fig1,fig2]]
+fig1,fig2=vf.plot_metrics_summary(final_res_15min)
+[fig.suptitle("Metrics summary with 15-min obs") for fig in [fig1,fig2]]
 # 3. Meteogram for a specific interesting window
 plot_start, plot_end = '2025-08-20', '2025-08-30'
 prob_df = vf.calculate_stacked_probabilities(df_eval)

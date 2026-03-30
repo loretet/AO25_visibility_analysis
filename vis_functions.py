@@ -336,12 +336,16 @@ def plot_metrics_summary(metrics_df):
     ax1.set_xticklabels(ax1.get_xticklabels(), rotation=30, ha='right')
     
     # 2. Plot Absolute Counts (Hits, Misses)
-    counts = metrics_df[['Hits', 'Misses']]
+    counts = metrics_df[['Hits', 'Misses','False alarms','Correct negatives']]
     fig2, ax2 = plt.subplots(figsize=(10, 5))
-    counts.plot(kind='bar', ax=ax2, rot=0, edgecolor='black', alpha=0.8)
+    counts.plot(kind='bar', ax=ax2, rot=0, edgecolor='black', alpha=0.8,width=0.8)
     ax2.set_title('Absolute Frequency (Hits vs Misses)')
     ax2.grid(axis='y', linestyle=':', alpha=0.6)
-    ax2.set_xticklabels(ax1.get_xticklabels(), rotation=30, ha='right')
+    ax2.set_xticklabels(ax2.get_xticklabels(), rotation=30, ha='right')
+    
+    # Add value labels on bars
+    for container in ax2.containers:
+        ax2.bar_label(container, fmt='%.0f')
     return fig1, fig2
 
 def get_evaluation_library(df, model_dict, obs_series, p_thresh=0.0, fog_thresh=1.0, higher_than_fog_thresh = False):
