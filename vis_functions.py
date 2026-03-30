@@ -6,6 +6,7 @@
 
 # Disclaimer: AI was used to add function headers and edit some snippets
 #             of code (mostly related to plotting).
+
 #%% Imports
 import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
@@ -18,7 +19,6 @@ import seaborn as sns
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import matplotlib.patches as mpatches
 from matplotlib.lines import Line2D
-
 
 #%% Functions
 def TAF_parser(taf_string, debug):
@@ -46,13 +46,13 @@ def TAF_parser(taf_string, debug):
     if debug:
         # Trends (TEMPO, BECMG, etc.)
         base_vis = taf.visibility.distance  # in meters
-        # print("Base visibility:", base_vis)
+        print("Base visibility:", base_vis)
         for trend in taf.trends:
             trend_type = trend.type.name  # TEMPO, BECMG, etc.
             trend_vis = trend.visibility.distance if trend.visibility else None
             start_hour = trend.validity.start_hour
             end_hour = trend.validity.end_hour
-            # print(f"{trend_type}: {trend_vis}, from {start_hour:02d}:00 to {end_hour:02d}:00")
+            print(f"{trend_type}: {trend_vis}, from {start_hour:02d}:00 to {end_hour:02d}:00")
     return taf
 
 def df_TAF_gen(taf_table, time_vec, debug):
@@ -195,6 +195,9 @@ def assign_event_probabilities(df, fog_thresh=1.0, higher_than_fog_thresh=False)
         TAF DataFrame with scenario columns.
     fog_thresh : float, optional
         The visibility threshold (km) defining the "event" (e.g., fog), by default 1.0.
+    higher_than_fog_thresh : bool
+        If True, the "event" is defined as visibility > fog_thresh (opportunity). 
+        If False, the "event" is defined as visibility <= fog_thresh (hazard), by default False.
 
     Returns
     -------
@@ -210,7 +213,6 @@ def assign_event_probabilities(df, fog_thresh=1.0, higher_than_fog_thresh=False)
         # Event is "Fog": Probability is 1.0 if main <= threshold, else 0.0
         df['p_event'] = (df['main_scenario'] <= fog_thresh).astype(float)
 
-    # Process Trends (TEMPO, PROB30, PROB40)
     # Process Trends (TEMPO, PROB30, PROB40)
     for col, weight in [('tempo', 0.1), ('prob30', 0.3), ('prob40', 0.4)]:
         mask_trend_exists = df[col].notna()
@@ -324,7 +326,7 @@ def plot_metrics_summary(metrics_df):
     fig1 : matplotlib.figure.Figure
         Figure containing bar plot of POD, FAR, CSI, and Bias (0-1 scale).
     fig2 : matplotlib.figure.Figure
-        Figure containing bar plot of absolute hit and miss counts.
+        Figure containing bar plot of absolute hit, miss,false alarms and correct negatives counts.
     """
     # 1. Plot Ratios (POD, FAR, CSI, Bias)
     ratios = metrics_df[['POD', 'FAR', 'CSI', 'Bias']]
@@ -366,6 +368,9 @@ def get_evaluation_library(df, model_dict, obs_series, p_thresh=0.0, fog_thresh=
     fog_thresh : float, optional
         Visibility threshold for defining fog event (km), by default 1.0.
         Event occurs when visibility < fog_thresh.
+    higher_than_fog_thresh : bool
+        If True, the "event" is defined as visibility > fog_thresh (opportunity). 
+        If False, the "event" is defined as visibility <= fog_thresh (hazard), by default False.
 
     Returns
     -------
@@ -660,6 +665,13 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
         Mapping of model names to their styling colors.
     fc_style_map : dict
         Mapping of forecaster versions to their styling markers and labels.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object containing the performance diagram.
+    axs : matplotlib.axes.Axes
+        Axes object for further customization.
     """
     x = np.linspace(0.001, 1, 100)
     y = np.linspace(0.001, 1, 100)
@@ -878,11 +890,6 @@ def plot_ensemble_spaghetti(ens_xr, obs_series, start_t, end_t, threshold=0.8):
         Figure object containing the spaghetti plot.
     ax : matplotlib.axes.Axes
         Axes object for further customization.
-
-    Notes
-    -----
-    Individual ensemble members are plotted as thin, semi-transparent gray lines.
-    The ensemble median is overlaid in black, and observations in red.
     """
     
     # Slice data for the window
@@ -935,6 +942,7 @@ def compute_brier_score(f, o):
     """
     # Ensure no NaNs from your masks interfere
     valid_mask = f.notna() & o.notna()
+
     return ((f[valid_mask] - o[valid_mask])**2).mean()
 
 def plot_reliability_diagram(prob_forecast, obs_binary, n_bins=10):
@@ -1057,6 +1065,7 @@ def plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, fog_thresh)
     This function creates a 2x3 subplot grid displaying PDFs in the top row and empirical CDFs (ECDFs) 
     in the bottom row for different time periods. The plots highlight fog conditions based on a specified 
     visibility threshold.
+
     Parameters
     ----------
     ds_obs : xarray.Dataset
@@ -1072,11 +1081,12 @@ def plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, fog_thresh)
     FOG_THRESH : float
         Visibility threshold (in km) below which conditions are considered foggy. Used to highlight 
         the fog zone and set x-axis limits for the ECDF plots.
+
     Returns
     -------
     fig : matplotlib.figure.Figure
         Figure object containing the reliability diagram.
-    ax : matplotlib.axes.Axes
+    axs : matplotlib.axes.Axes
         Axes object for further customization.
     """
     raw_data = {}
@@ -1145,6 +1155,13 @@ def plot_fog_events(df_eval, model_data, FOG_THRESH, event_lib=None, truth=None,
         Truth series for debug output
     debug : bool
         Whether to print debugging information
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object containing the reliability diagram.
+    ax : matplotlib.axes.Axes
+        Axes object for further customization.
     """
     fig, ax = plt.subplots(figsize=(16, 8))
     ax.plot(df_eval.index, df_eval['obs_vis'], label='Observed Vis (km)', color='black')
@@ -1198,6 +1215,8 @@ def plot_fog_events(df_eval, model_data, FOG_THRESH, event_lib=None, truth=None,
             else:
                 print("Model: MISSING TIMESTAMP")
             print("-" * 30)
+    
+    return fig,ax
 
 def calculate_ets(a, b, c, d):
     """

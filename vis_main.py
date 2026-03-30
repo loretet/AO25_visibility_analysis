@@ -4,15 +4,10 @@
 # Scripts for "Paper title"
 # by Authors...
 
-## TO DO:
-# - sanity check that POD(low vis) is not 1-POD(good vis)
-# - include "Forecaster conservative" into performances (like in paper_plot.py)
-# - reproduce performance diagrams with POD(good vis) and 1-FAR(good vis)
-
 #%% Imports
 import vis_functions as vf
-import importlib         # look for changes in vis_functions without
-importlib.reload(vf)     # having to reload the kernel
+import importlib         # look for changes in vis_functions.py
+importlib.reload(vf)     # without having to reload the kernel
 import numpy as np
 import xarray as xr
 import pandas as pd
@@ -43,18 +38,17 @@ if preproc:
 #%% SETTINGS AND PATHS
 # Settings
 FOG_THRESH = 0.8  # km  (0.8 km Cassel Aero threshold, 1 km WMO threshold)
-HIGHER_THAN_FOG_THRESH = True  # if True, looks at windows of opportnity. If False, looks at low vis. events
-# FC_THRESH = 0.0 # forecast threshold to check low vis event (0: low vis assumed even if only predicted by TEMPO group. 0.5: only BASE group)
+HIGHER_THAN_FOG_THRESH = False  # if True, looks at windows of opportnity (high visibility). If False, looks at low vis. events
 MODEL_24h = False  # Whether to evaluate the full 24h forecast or just the TAF validity times:
                   #   True: the model gets evaluated over 24h, while the forecaster only on its active time
                   #   False: both model and forecaster are evaluated only on the TAFs validity window. Better imho
 
-# Period 1
+# Cruise period and resolution
 START_DATE = '2025-08-12 00:00'
 END_DATE = '2025-09-16 00:00'
-TIME_RES = 'h'  # Analysis resolution (minutes, hours..) - important for obs
+TIME_RES = 'h'  # Analysis resolution (minutes, hours..) 
 
-# File Paths (observation ALREADY preprocessed with hourly median/quantiles and divided in quantiles)
+# File Paths (observation ALREADY preprocessed with hourly median/quantiles and divided in quantiles, from data repository)
 TAF_PATH = '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/AO25_TAFs.xlsx'
 OBS_PATH = '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/obs_data/AO2025_MDF_20250812-20250915_hourly_quantiles.nc'
 visas = "visas_5min"
@@ -63,7 +57,6 @@ visas = "visas_5min"
 MODEL_PATHS = {
     'IFS': '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_oper_oden_20250811_20250915_day2_new_visibility_diagnostic_v1.nc',
     'lowLvlMean': '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_diagnostic_lowLvlMean.nc',
-    # 'lowLvlSum': '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_diagnostic_lowLvlSum.nc',
 }
 
 PERS_PATH = "/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/AO2025_20250812-20250915_persistence_forecast.nc"
@@ -251,7 +244,7 @@ mask_valid = df_eval['is_valid'] == True
 for start_t, end_t, p_name in DATES:
     t_mask = (df_eval.index >= start_t) & (df_eval.index <= end_t)
     
-    # We will compute using the Valid mask exclusively here as per your MODEL_24h standard approach
+    # Compute only in TAF validity times if MODEL_24h=False
     eval_mask_models = t_mask if MODEL_24h else t_mask & mask_valid
     eval_mask_fc = t_mask & mask_valid
     
@@ -317,7 +310,6 @@ for name in final_res_15min.index:
 
 # 1. 2x2 Multi-Period Performance Diagram
 P_NAMES = [d[2] for d in DATES]
-
 fig_perf, axs_perf = vf.plot_multi_period_performance(
     results_list=multi_period_results,
     period_names=P_NAMES,
