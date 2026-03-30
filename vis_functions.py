@@ -184,7 +184,7 @@ def calculate_scenarios(df):
     df['main_scenario'] = df['main_vis']
     return df
 
-def assign_event_probabilities(df, fog_thresh=1.0, higher_than_fog_thresh=False):
+def assign_event_probabilities(df, fog_thresh, higher_than_fog_thresh):
     """
     Maps TAF categorical trends to numerical event probabilities $P(\text{Vis} >< fog_{thresh})$.
     Priority follows: Main (100%) > PROB40 (40%) > PROB30 (30%) > TEMPO (10%).
@@ -350,7 +350,7 @@ def plot_metrics_summary(metrics_df):
         ax2.bar_label(container, fmt='%.0f')
     return fig1, fig2
 
-def get_evaluation_library(df, model_dict, obs_series, p_thresh=0.0, fog_thresh=1.0, higher_than_fog_thresh = False):
+def get_evaluation_library(df, model_dict, obs_series, p_thresh, fog_thresh, higher_than_fog_thresh):
     """
     Creates a standardized library of boolean event series for all models and the forecaster.
 
@@ -832,40 +832,7 @@ def plot_taf_components(df):
     plt.tight_layout()
     return fig, ax
 
-def apply_diurnal_mask(df, start_hour, end_hour, day_only=True):
-    """
-    Filters a DataFrame to only include specific hours of the day.
-
-    Parameters
-    ----------
-    df : pd.DataFrame or pd.Series
-        Input data with datetime index.
-    start_hour : int
-        Start hour (0-23) for the time window.
-    end_hour : int
-        End hour (0-23) for the time window.
-    day_only : bool 
-        If True, keeps hours between start_hour and end_hour (inclusive).
-        If False, keeps hours outside that range (night hours), by default True.
-
-    Returns
-    -------
-    df : pd.DataFrame or pd.Series
-        Filtered data with NaN values outside the specified time window.
-    """
-    # Extract the hour from the datetime index
-    hours = df.index.hour
-    
-    if day_only:
-        # e.g., 07:00 to 15:00
-        mask = (hours >= start_hour) & (hours <= end_hour)
-    else:
-        # e.g., everything EXCEPT 07:00 to 15:00
-        mask = (hours < start_hour) | (hours > end_hour)
-        
-    return df.where(mask)
-
-def plot_ensemble_spaghetti(ens_xr, obs_series, start_t, end_t, fog_thresh=0.8):
+def plot_ensemble_spaghetti(ens_xr, obs_series, start_t, end_t, fog_thresh):
     """
     Plots individual ensemble members as 'spaghetti' lines to visualize forecast spread
     and uncertainty relative to observations.
@@ -1137,7 +1104,7 @@ def plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, fog_thresh)
     plt.tight_layout()
     return fig,axs
 
-def plot_fog_events(df_eval, model_data, FOG_THRESH, event_lib=None, truth=None, debug=False, higher_than_fog_thresh=False):
+def plot_fog_events(df_eval, model_data, FOG_THRESH, event_lib, truth, higher_than_fog_thresh, debug=False):
     """
     Plot observations and models with fog events and TAF validity window.
     
@@ -1153,11 +1120,11 @@ def plot_fog_events(df_eval, model_data, FOG_THRESH, event_lib=None, truth=None,
         Event library for debug output
     truth : pd.Series 
         Truth series for debug output
-    debug : bool
-        Whether to print debugging information
     higher_than_fog_thresh : bool
         If True, the "event" is defined as visibility > fog_thresh (opportunity). 
         If False, the "event" is defined as visibility <= fog_thresh (hazard), by default False.
+    debug : bool
+        Whether to print debugging information
     
     Returns
     -------
