@@ -16,8 +16,8 @@ plt.rcParams['figure.dpi'] = 300
 
 #%% PREPROCESS DATASETS
 # Flags:
-preproc = 0 # whether to preproc original dataset with different diagnostics (necesary only once)
-debug = 1   # whether to print debugging lines
+preproc = False   # whether to preproc original dataset with different diagnostics (necesary only once)
+debug   = False   # whether to print debugging lines
 
 if preproc:
 # Rename the different visibilities from the original diagnostic datasets to "vis"
@@ -39,7 +39,7 @@ if preproc:
 # Settings
 FOG_THRESH = 0.8  # km  (0.8 km Cassel Aero threshold, 1 km WMO threshold)
 HIGHER_THAN_FOG_THRESH = False  # if True, looks at windows of opportnity (high visibility). If False, looks at low vis. events
-MODEL_24h = False  # Whether to evaluate the full 24h forecast or just the TAF validity times:
+MODEL_24h = False # Whether to evaluate the full 24h forecast or just the TAF validity times:
                   #   True: the model gets evaluated over 24h, while the forecaster only on its active time
                   #   False: both model and forecaster are evaluated only on the TAFs validity window. Better imho
 
@@ -228,11 +228,11 @@ DATES = [
 ]
 
 # 1. Generate full event libraries for BOTH thresholds AND BOTH observation types
-truth_5min, ev_lib_05_5min = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_5min'], p_thresh=0.5, fog_thresh=FOG_THRESH)
-truth_15min, ev_lib_05_15min = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_15min'], p_thresh=0.5, fog_thresh=FOG_THRESH)
+truth_5min, ev_lib_05_5min = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_5min'], p_thresh=0.5, fog_thresh=FOG_THRESH, higher_than_fog_thresh=HIGHER_THAN_FOG_THRESH)
+truth_15min, ev_lib_05_15min = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_15min'], p_thresh=0.5, fog_thresh=FOG_THRESH, higher_than_fog_thresh=HIGHER_THAN_FOG_THRESH)
 
-_, ev_lib_00_5min = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_5min'], p_thresh=0.0, fog_thresh=FOG_THRESH)
-_, ev_lib_00_15min = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_15min'], p_thresh=0.0, fog_thresh=FOG_THRESH)
+_, ev_lib_00_5min = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_5min'], p_thresh=0.0, fog_thresh=FOG_THRESH, higher_than_fog_thresh=HIGHER_THAN_FOG_THRESH)
+_, ev_lib_00_15min = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_15min'], p_thresh=0.0, fog_thresh=FOG_THRESH, higher_than_fog_thresh=HIGHER_THAN_FOG_THRESH)
 
 # Isolate models 
 models_lib_5min = {k: v for k, v in ev_lib_05_5min.items() if k != 'Forecaster'}
@@ -271,11 +271,10 @@ for start_t, end_t, p_name in DATES:
     })
 
 # Compute Brier score
-print("Ensemble Brier score (obs processed in 5 min):")
 bs_ens = vf.compute_brier_score(prob_fog[eval_mask_fc], df_eval['obs_event_5min'][eval_mask_fc])
-print("Ensemble Brier score (obs processed in 15 min):")
+print(f"Ensemble Brier score (obs processed in 5 min): {bs_ens:.4f}")
 bs_ens = vf.compute_brier_score(prob_fog[eval_mask_fc], df_eval['obs_event_15min'][eval_mask_fc])
-print(f"\nEnsemble Brier Score: {bs_ens:.4f}")
+print(f"Ensemble Brier score (obs processed in 15 min): {bs_ens:.4f}")
 
 # Extract final period (Entire Cruise) for text output (5-minute basis)
 final_res_5min = pd.concat([
@@ -369,6 +368,6 @@ fig,_=vf.plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, FOG_TH
 fig.suptitle("PDFs and CDFs for the observations processed using different quantiles",size=16,y=1.01)
 
 # 5. Ensemble spaghetti
-vf.plot_ensemble_spaghetti(ens_aligned, df_eval['obs_vis'], '2025-08-25', '2025-08-27')
+vf.plot_ensemble_spaghetti(ens_aligned, df_eval['obs_vis'], '2025-08-25', '2025-08-27',fog_thresh=FOG_THRESH)
 
 # %%
