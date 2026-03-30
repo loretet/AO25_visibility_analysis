@@ -278,7 +278,10 @@ for start_t, end_t, p_name in DATES:
     })
 
 # Compute Brier score
-bs_ens = vf.compute_brier_score(prob_fog, df_eval['obs_event'])
+print("Ensemble Brier score (obs processed in 5 min):")
+bs_ens = vf.compute_brier_score(prob_fog[eval_mask_fc], df_eval['obs_event_5min'][eval_mask_fc])
+print("Ensemble Brier score (obs processed in 15 min):")
+bs_ens = vf.compute_brier_score(prob_fog[eval_mask_fc], df_eval['obs_event_15min'][eval_mask_fc])
 print(f"\nEnsemble Brier Score: {bs_ens:.4f}")
 
 # Extract final period (Entire Cruise) for text output (5-minute basis)
