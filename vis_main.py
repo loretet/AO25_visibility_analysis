@@ -44,19 +44,13 @@ if preproc:
 # Settings
 FOG_THRESH = 0.8  # km  (0.8 km Cassel Aero threshold, 1 km WMO threshold)
 HIGHER_THAN_FOG_THRESH = True  # if True, looks at windows of opportnity. If False, looks at low vis. events
-FC_THRESH = 0.0 # forecast threshold to check low vis event (0: low vis assumed even if only predicted by TEMPO group. 0.5: only BASE group)
+# FC_THRESH = 0.0 # forecast threshold to check low vis event (0: low vis assumed even if only predicted by TEMPO group. 0.5: only BASE group)
 MODEL_24h = False  # Whether to evaluate the full 24h forecast or just the TAF validity times:
                   #   True: the model gets evaluated over 24h, while the forecaster only on its active time
                   #   False: both model and forecaster are evaluated only on the TAFs validity window. Better imho
 
 # Period 1
 START_DATE = '2025-08-12 00:00'
-# END_DATE = '2025-08-16 12:00'
-# Period 2
-# START_DATE = '2025-08-16 13:00'
-# END_DATE = '2025-09-03 00:00'
-# Period 3:
-# START_DATE = '2025-09-03 01:00'
 END_DATE = '2025-09-16 00:00'
 TIME_RES = 'h'  # Analysis resolution (minutes, hours..) - important for obs
 
@@ -75,6 +69,29 @@ MODEL_PATHS = {
 PERS_PATH = "/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/AO2025_20250812-20250915_persistence_forecast.nc"
 
 ENS_PATH = '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_ens_oden_2025-08-11_2025-09-15_vis_day2.nc'
+
+# Visual configuration
+MODEL_STYLE = {
+    'IFS': 'blue',
+    'lowLvlMean': 'green',
+    'Ens_Median': 'orange',
+    'Ens_WorstCase': 'purple',
+    'Ens_P20': 'brown',
+    'Ens_P30': 'pink',
+    'pers_ds_5min': 'cyan',
+    'pers_ds_median': 'olive'
+}
+FC_STYLES = {
+    'base': {'color': 'black', 'marker': 'D', 'label': 'Forecaster (Base: 0.5)'},
+    'conservative': {'color': 'darkgray', 'marker': 'X', 'label': 'Forecaster (All: 0.0)'}
+}
+
+DATES = [
+    ('2025-08-12 00:00', '2025-08-16 12:00', 'Period 1'),
+    ('2025-08-16 13:00', '2025-09-03 00:00', 'Period 2'),
+    ('2025-09-03 01:00', '2025-09-16 00:00', 'Period 3'),
+    (START_DATE, END_DATE, 'Entire Cruise')
+]
 
 #%% BASELINE DATA PREP
 
@@ -143,20 +160,42 @@ df_eval = vf.assign_event_probabilities(df_eval, FOG_THRESH, HIGHER_THAN_FOG_THR
 # 3. Load and Align Observations
 ds_obs = xr.open_dataset(OBS_PATH, decode_timedelta=True)
 
-# Apply smoothing and align to time_vec
-vis_obs_series = ds_obs[visas].to_series() * 1e-3
-vis_obs_series = np.clip(vis_obs_series, 0, 10).reindex(time_vec)
+# Apply smoothing and align to time_vec for both 5min and 15min
+vis_obs_5min = np.clip(ds_obs["visas_5min"].to_series() * 1e-3, 0, 10).reindex(time_vec)
+vis_obs_15min = np.clip(ds_obs["visas_15min"].to_series() * 1e-3, 0, 10).reindex(time_vec)
+
+# Add to evaluation dataframe (Keeping obs_vis for standard 5min fallback plots)
+df_eval['obs_vis'] = vis_obs_5min 
+df_eval['obs_vis_5min'] = vis_obs_5min
+df_eval['obs_vis_15min'] = vis_obs_15min
+
+if HIGHER_THAN_FOG_THRESH:
+    df_eval['obs_event_5min'] = (df_eval['obs_vis_5min'] > FOG_THRESH).astype(float)
+    df_eval['obs_event_15min'] = (df_eval['obs_vis_15min'] > FOG_THRESH).astype(float)
+    df_eval['obs_event'] = df_eval['obs_event_5min']
+else:
+    df_eval['obs_event_5min'] = (df_eval['obs_vis_5min'] <= FOG_THRESH).astype(float)
+    df_eval['obs_event_15min'] = (df_eval['obs_vis_15min'] <= FOG_THRESH).astype(float)
+    df_eval['obs_event'] = df_eval['obs_event_5min']
 
 # Check number of visibility observations with vis < 800m
 if debug:
     cp,cm=0,0
-    for i in vis_obs_series:
+    for i in vis_obs_15min:
         if i <= FOG_THRESH:
             cm +=1
         elif i > FOG_THRESH:
             cp +=1
-    print(f"Count of points with vis > {FOG_THRESH*1e3}m: {cp}")
-    print(f"Count of points with vis <= {FOG_THRESH*1e3}m: {cm}  [{cm*100/(cm+cp):.1f}% of the total]")
+    print(f"[15-min obs] Count of points with vis > {FOG_THRESH*1e3}m: {cp}")
+    print(f"[15-min obs] Count of points with vis <= {FOG_THRESH*1e3}m: {cm}  [{cm*100/(cm+cp):.1f}% of the total]")
+    cp,cm=0,0
+    for i in vis_obs_5min:
+        if i <= FOG_THRESH:
+            cm +=1
+        elif i > FOG_THRESH:
+            cp +=1
+    print(f"[5-min obs] Count of points with vis > {FOG_THRESH*1e3}m: {cp}")
+    print(f"[5-min obs] Count of points with vis <= {FOG_THRESH*1e3}m: {cm}  [{cm*100/(cm+cp):.1f}% of the total]")
 
 # Check data overlap
 if debug: 
@@ -165,18 +204,15 @@ if debug:
     if valid_times == 0:
         print("WARNING: No TAFs were mapped to the time vector. Check START_DATE/Index alignment.")
     if HIGHER_THAN_FOG_THRESH:
-        mask = (vis_obs_series > FOG_THRESH) & (df_eval['is_valid'] == True)
+        mask5 = (vis_obs_5min > FOG_THRESH) & (df_eval['is_valid'] == True)
+        mask15 = (vis_obs_15min > FOG_THRESH) & (df_eval['is_valid'] == True)
     else:   
-        mask = (vis_obs_series <= FOG_THRESH) & (df_eval['is_valid'] == True)
-    vis_count = mask.sum()
-    print(f"Low visibility events in TAF validity window: {vis_count}")  
-
-# Add to evaluation dataframe
-df_eval['obs_vis'] = vis_obs_series
-if HIGHER_THAN_FOG_THRESH:
-    df_eval['obs_event'] = (df_eval['obs_vis'] > FOG_THRESH).astype(float)
-else:
-    df_eval['obs_event'] = (df_eval['obs_vis'] <= FOG_THRESH).astype(float)
+        mask5 = (vis_obs_5min <= FOG_THRESH) & (df_eval['is_valid'] == True)
+        mask15 = (vis_obs_15min <= FOG_THRESH) & (df_eval['is_valid'] == True)
+    vis_count_5min = mask5.sum()
+    vis_count_15min = mask15.sum()
+    print(f"[15-min obs] Low visibility events in TAF validity window: {vis_count_15min}")  
+    print(f"[5-min obs] Low visibility events in TAF validity window: {vis_count_5min}")  
 
 # Debugging time 
 if debug:
@@ -184,93 +220,113 @@ if debug:
     for name, series in model_data.items():
         print(name, series.index.min(), series.index.max(), len(series))
     print("time_vec:", time_vec.min(), time_vec.max(), len(time_vec))
-    print("Obs:", vis_obs_series.index.min(), vis_obs_series.index.max(), len(vis_obs_series))
+    print("Obs 5 min:", vis_obs_5min.index.min(), vis_obs_5min.index.max(), len(vis_obs_5min))
+    print("Obs 15 min:", vis_obs_15min.index.min(), vis_obs_15min.index.max(), len(vis_obs_15min))
     print("TAFs:", df_eval.index.min(), df_eval.index.max(), len(df_eval))
 
 #%% MODEL EVALUATION
 
-# 1. Get the raw events (Initial 24h baseline for all)
-truth_full, event_lib = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis'],
-                                                   FC_THRESH, FOG_THRESH, HIGHER_THAN_FOG_THRESH)
+# Define analysis periods
+DATES = [
+    ('2025-08-12 00:00', '2025-08-16 12:00', 'Period 1'),
+    ('2025-08-16 13:00', '2025-09-03 00:00', 'Period 2'),
+    ('2025-09-03 01:00', '2025-09-16 00:00', 'Period 3'),
+    (START_DATE, END_DATE, 'Entire Cruise')
+]
 
-# Define the Forecaster's active window mask
-mask = (df_eval['is_valid'] == True)
+# 1. Generate full event libraries for BOTH thresholds AND BOTH observation types
+truth_5min, ev_lib_05_5min = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_5min'], p_thresh=0.5, fog_thresh=FOG_THRESH)
+truth_15min, ev_lib_05_15min = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_15min'], p_thresh=0.5, fog_thresh=FOG_THRESH)
 
-if not MODEL_24h:
-    # --- SCENARIO: SYNCHRONIZED DAYTIME ONLY ---
-    # Everything (Truth, Forecaster, Models) is restricted to 07:00-15:00
-    truth = truth_full.loc[mask]
+_, ev_lib_00_5min = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_5min'], p_thresh=0.0, fog_thresh=FOG_THRESH)
+_, ev_lib_00_15min = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis_15min'], p_thresh=0.0, fog_thresh=FOG_THRESH)
+
+# Isolate models 
+models_lib_5min = {k: v for k, v in ev_lib_05_5min.items() if k != 'Forecaster'}
+models_lib_15min = {k: v for k, v in ev_lib_05_15min.items() if k != 'Forecaster'}
+
+multi_period_results = []
+mask_valid = df_eval['is_valid'] == True
+
+for start_t, end_t, p_name in DATES:
+    t_mask = (df_eval.index >= start_t) & (df_eval.index <= end_t)
     
-    # apply mask to the event library (Hhndling both DataFrame and Dict)
-    if isinstance(event_lib, pd.DataFrame):
-        eval_lib = event_lib.loc[mask]
-    else:
-        eval_lib = {k: v.loc[mask] for k, v in event_lib.items()}
-
-    results_df = vf.compute_all_metrics(truth, eval_lib)
-    print(f"--- SYNCHRONIZED EVALUATION (TAF VALIDITY TIME ONLY) ---")
-
-else:
-    # --- SCENARIO: HYBRID OPERATIONAL ---
-    # Forecaster is evaluated on 8h window | Models are evaluated on 24h window
+    # We will compute using the Valid mask exclusively here as per your MODEL_24h standard approach
+    eval_mask_models = t_mask if MODEL_24h else t_mask & mask_valid
+    eval_mask_fc = t_mask & mask_valid
     
-    # A. Forecaster metrics (8h window)
-    truth_forecaster = truth_full.loc[mask]
-    forecaster_series = event_lib['Forecaster'].loc[mask]
-    forecaster_metrics = vf.get_metrics(forecaster_series, truth_forecaster)
-    forecaster_df = pd.DataFrame(forecaster_metrics, index=['Forecaster'])
-    
-    # B. Model metrics (Full 24h window)
-    if isinstance(event_lib, pd.DataFrame):
-        models_only_lib = event_lib.drop(columns=['Forecaster'])
-    else:
-        models_only_lib = {k: v for k, v in event_lib.items() if k != 'Forecaster'}
-    
-    model_results_df = vf.compute_all_metrics(truth_full, models_only_lib)
-    
-    # C. Combine
-    results_df = pd.concat([model_results_df, forecaster_df])
-    print(f"--- HYBRID EVALUATION (Models: 24h | Forecaster: 8h) ---")
+    # Compute 5min metrics
+    mod_window_lib_5 = {k: v.loc[eval_mask_models] for k, v in models_lib_5min.items()}
+    res_models_5 = vf.compute_all_metrics(truth_5min.loc[eval_mask_models], mod_window_lib_5)
+    res_fc_05_5 = pd.DataFrame(vf.get_metrics(ev_lib_05_5min['Forecaster'].loc[eval_mask_fc], truth_5min.loc[eval_mask_fc]), index=['Forecaster_05'])
+    res_fc_00_5 = pd.DataFrame(vf.get_metrics(ev_lib_00_5min['Forecaster'].loc[eval_mask_fc], truth_5min.loc[eval_mask_fc]), index=['Forecaster_00'])
 
-if debug:
-    print("---- SANITY CHECK ----")
-    print("Truth sum:", truth.sum())
+    # Compute 15min metrics
+    mod_window_lib_15 = {k: v.loc[eval_mask_models] for k, v in models_lib_15min.items()}
+    res_models_15 = vf.compute_all_metrics(truth_15min.loc[eval_mask_models], mod_window_lib_15)
+    res_fc_05_15 = pd.DataFrame(vf.get_metrics(ev_lib_05_15min['Forecaster'].loc[eval_mask_fc], truth_15min.loc[eval_mask_fc]), index=['Forecaster_05'])
+    res_fc_00_15 = pd.DataFrame(vf.get_metrics(ev_lib_00_15min['Forecaster'].loc[eval_mask_fc], truth_15min.loc[eval_mask_fc]), index=['Forecaster_00'])
 
-    for name, s in eval_lib.items():
-        print(name, "sum:", s.sum(), "non-NaN:", s.notna().sum())
-    print("### DEBUG overlap length ###")
-    print("Truth events:", truth.sum())
-    for name, series in eval_lib.items():
-        aligned = truth.align(series, join='inner')
-        print(name, "overlap length:", len(aligned[0].dropna()))
+    # Store for plotting
+    multi_period_results.append({
+        'models_5min': res_models_5,
+        'models_15min': res_models_15,
+        'fc_05_5min': res_fc_05_5.iloc[0],
+        'fc_05_15min': res_fc_05_15.iloc[0],
+        'fc_00_5min': res_fc_00_5.iloc[0],
+        'fc_00_15min': res_fc_00_15.iloc[0]
+    })
 
-# 3. View Results
-all_rows = sorted([r for r in results_df.index if r != 'Forecaster'])
-custom_order = ['Forecaster'] + all_rows  # Forecaster on top when printing
-results_df = results_df.reindex(custom_order)
-print(results_df.to_string(float_format="%.3f"))
-
-# 4. Brier Score calculation
+# Compute Brier score
 bs_ens = vf.compute_brier_score(prob_fog, df_eval['obs_event'])
-print(f"Ensemble Brier Score: {bs_ens:.4f}")
+print(f"\nEnsemble Brier Score: {bs_ens:.4f}")
 
-# 5. Check fog events in [START_DATE , END_DATE]
-vf.plot_fog_events(df_eval, model_data, FOG_THRESH, event_lib, truth, debug, HIGHER_THAN_FOG_THRESH)
+# Extract final period (Entire Cruise) for text output (5-minute basis)
+final_res_5min = pd.concat([
+    multi_period_results[-1]['models_5min'], 
+    pd.DataFrame([multi_period_results[-1]['fc_05_5min']], index=['Forecaster_05']),
+    pd.DataFrame([multi_period_results[-1]['fc_00_5min']], index=['Forecaster_00'])
+])
+print("\n--- EVALUATION SUMMARY (ENTIRE CRUISE - 5min Obs) ---")
+print(final_res_5min.to_string(float_format="%.3f"))
+print(f"\n{'Model':<25} | {'ETS':<10} | Contingency [Hits, Misses, FA, CN]")
+print("-" * 65)
+for name in final_res_5min.index:
+    r = final_res_5min.loc[name]
+    ets = vf.calculate_ets(r["Hits"], r["False alarms"], r["Misses"], r["Correct negatives"])
+    print(f"{name:<25} | {ets:<10.4f} | [{int(r['Hits'])}, {int(r['Misses'])}, {int(r['False alarms'])}, {int(r['Correct negatives'])}]")
+
+final_res_15min = pd.concat([
+    multi_period_results[-1]['models_15min'], 
+    pd.DataFrame([multi_period_results[-1]['fc_05_15min']], index=['Forecaster_05']),
+    pd.DataFrame([multi_period_results[-1]['fc_00_15min']], index=['Forecaster_00'])
+])
+print("\n--- EVALUATION SUMMARY (ENTIRE CRUISE - 15min Obs) ---")
+print(final_res_15min.to_string(float_format="%.3f"))
+print(f"\n{'Model':<25} | {'ETS':<10} | Contingency [Hits, Misses, FA, CN]")
+print("-" * 65)
+for name in final_res_15min.index:
+    r = final_res_15min.loc[name]
+    ets = vf.calculate_ets(r["Hits"], r["False alarms"], r["Misses"], r["Correct negatives"])
+    print(f"{name:<25} | {ets:<10.4f} | [{int(r['Hits'])}, {int(r['Misses'])}, {int(r['False alarms'])}, {int(r['Correct negatives'])}]")
 
 #%% PERFORMANCE VISUAL ANALYSIS
 
-# 1. Performance Diagram (Generalised)
-# Extract POD/FAR from the results_df
-# Below B=1: underforecasting, else overforecasting.
-# High POD = good; High Success ratio = good; Points on top right corner = very good.
-vf.plot_performance_diagram(
-    pods=results_df['POD'], 
-    fars=results_df['FAR'], 
-    labels=results_df.index
+# 1. 2x2 Multi-Period Performance Diagram
+P_NAMES = [d[2] for d in DATES]
+
+fig_perf, axs_perf = vf.plot_multi_period_performance(
+    results_list=multi_period_results,
+    period_names=P_NAMES,
+    model_style_map=MODEL_STYLE,
+    fc_style_map =FC_STYLES
 )
 
-# 2. Visual Summary Bar Chart
-vf.plot_metrics_summary(results_df)
+# 2. Visual Summary Bar Chart (Using Entire Cruise Data)
+print("Metrics summary with 5-min obs:")
+vf.plot_metrics_summary(final_res_5min)
+print("Metrics summary with 15-min obs:")
+vf.plot_metrics_summary(final_res_15min)
 
 # 3. Meteogram for a specific interesting window
 plot_start, plot_end = '2025-08-20', '2025-08-30'
