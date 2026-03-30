@@ -21,7 +21,7 @@ import matplotlib.patches as mpatches
 from matplotlib.lines import Line2D
 
 #%% Functions
-def TAF_parser(taf_string, debug):
+def TAF_parser(taf_string, debug=False):
     """
     Parses a raw TAF string into a structured TAF object.
 
@@ -193,7 +193,7 @@ def assign_event_probabilities(df, fog_thresh=1.0, higher_than_fog_thresh=False)
     ----------
     df : pd.DataFrame
         TAF DataFrame with scenario columns.
-    fog_thresh : float, optional
+    fog_thresh : float 
         The visibility threshold (km) defining the "event" (e.g., fog), by default 1.0.
     higher_than_fog_thresh : bool
         If True, the "event" is defined as visibility > fog_thresh (opportunity). 
@@ -362,10 +362,10 @@ def get_evaluation_library(df, model_dict, obs_series, p_thresh=0.0, fog_thresh=
         Dictionary mapping model names to visibility series { 'Name': pd.Series(vis_km) }.
     obs_series : pd.Series
         Observed visibility time series (km).
-    p_thresh : float, optional
+    p_thresh : float 
         Probability threshold for defining forecaster event, by default 0.0.
         Forecaster event occurs when p_event > p_thresh.
-    fog_thresh : float, optional
+    fog_thresh : float 
         Visibility threshold for defining fog event (km), by default 1.0.
         Event occurs when visibility < fog_thresh.
     higher_than_fog_thresh : bool
@@ -418,9 +418,9 @@ def plot_vis_summary(df, vis_obs, vis_mod1, vis_mod2, fog_thresh, start_date=Non
         Second model visibility time series (km).
     fog_thresh : float
         Visibility threshold for fog definition (km).
-    start_date : str or pd.Timestamp, optional
+    start_date : str or pd.Timestamp 
         Start date for the plot window. If None, uses full time range.
-    end_date : str or pd.Timestamp, optional
+    end_date : str or pd.Timestamp 
         End date for the plot window. If None, uses full time range.
 
     Returns
@@ -535,7 +535,7 @@ def plot_ens_meteogram(prob_df, model_dict, vis_obs, start_date, end_date, resam
         Start date for the plot window.
     end_date : str or pd.Timestamp
         End date for the plot window.
-    resample_freq : str, optional
+    resample_freq : str 
         Resampling frequency for aggregating probabilities, by default '3H'.
 
     Returns
@@ -606,7 +606,7 @@ def plot_performance_diagram(pods, fars, labels, colors=None):
         False Alarm Rate values (0 to 1) for each forecast/model.
     labels : list of str
         Names/labels for each forecast/model to display in the legend.
-    colors : array-like, optional
+    colors : array-like 
         RGB or named colors for each point. If None, uses tab10 colormap.
 
     Returns
@@ -844,7 +844,7 @@ def apply_diurnal_mask(df, start_hour, end_hour, day_only=True):
         Start hour (0-23) for the time window.
     end_hour : int
         End hour (0-23) for the time window.
-    day_only : bool, optional
+    day_only : bool 
         If True, keeps hours between start_hour and end_hour (inclusive).
         If False, keeps hours outside that range (night hours), by default True.
 
@@ -865,7 +865,7 @@ def apply_diurnal_mask(df, start_hour, end_hour, day_only=True):
         
     return df.where(mask)
 
-def plot_ensemble_spaghetti(ens_xr, obs_series, start_t, end_t, threshold=0.8):
+def plot_ensemble_spaghetti(ens_xr, obs_series, start_t, end_t, fog_thresh=0.8):
     """
     Plots individual ensemble members as 'spaghetti' lines to visualize forecast spread
     and uncertainty relative to observations.
@@ -881,7 +881,7 @@ def plot_ensemble_spaghetti(ens_xr, obs_series, start_t, end_t, threshold=0.8):
         Start time for the plot window.
     end_t : str or pd.Timestamp
         End time for the plot window.
-    threshold : float, optional
+    fog_thresh : float 
         Visibility threshold for fog definition (km), by default 0.8.
 
     Returns
@@ -912,7 +912,7 @@ def plot_ensemble_spaghetti(ens_xr, obs_series, start_t, end_t, threshold=0.8):
             color='k',  label='Ensemble Median', zorder=2, lw=0.8)
     
     # Fog Threshold Line
-    ax.axhline(threshold, color='black', ls='--', alpha=0.6, label='Fog Threshold')
+    ax.axhline(fog_thresh, color='black', ls='--', alpha=0.6, label='Fog Threshold')
     
     ax.set_ylim(0, 10.5) # Focus on the low-visibility range
     ax.set_ylabel('Visibility [km]')
@@ -958,7 +958,7 @@ def plot_reliability_diagram(prob_forecast, obs_binary, n_bins=10):
         Forecasted probabilities (0.0 to 1.0).
     obs_binary : pd.Series
         Observed binary events (0 or 1).
-    n_bins : int, optional
+    n_bins : int 
         Number of probability bins for calibration analysis, by default 10.
 
     Returns
@@ -1078,7 +1078,7 @@ def plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, fog_thresh)
     quant_vars : list of str
         List of variable names representing different visibility measurement sources or types. 
         The first 4 variables are plotted in the PDFs and CDFs.
-    FOG_THRESH : float
+    fog_thresh : float
         Visibility threshold (in km) below which conditions are considered foggy. Used to highlight 
         the fog zone and set x-axis limits for the ECDF plots.
 
@@ -1149,13 +1149,16 @@ def plot_fog_events(df_eval, model_data, FOG_THRESH, event_lib=None, truth=None,
         Dictionary of model forecast series
     FOG_THRESH : float
         Fog threshold in km
-    event_lib : dict, optional
+    event_lib : dict 
         Event library for debug output
-    truth : pd.Series, optional
+    truth : pd.Series 
         Truth series for debug output
     debug : bool
         Whether to print debugging information
-
+    higher_than_fog_thresh : bool
+        If True, the "event" is defined as visibility > fog_thresh (opportunity). 
+        If False, the "event" is defined as visibility <= fog_thresh (hazard), by default False.
+    
     Returns
     -------
     fig : matplotlib.figure.Figure

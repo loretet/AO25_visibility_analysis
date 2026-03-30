@@ -17,7 +17,7 @@ plt.rcParams['figure.dpi'] = 300
 #%% PREPROCESS DATASETS
 # Flags:
 preproc = 0 # whether to preproc original dataset with different diagnostics (necesary only once)
-debug = 0   # whether to print debugging lines
+debug = 1   # whether to print debugging lines
 
 if preproc:
 # Rename the different visibilities from the original diagnostic datasets to "vis"
