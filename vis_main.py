@@ -68,6 +68,7 @@ MODEL_STYLE = {
     'IFS': 'blue',
     'lowLvlMean': 'green',
     'Ens_Median': 'orange',
+    'Ens_BestCase': 'red',  
     'Ens_WorstCase': 'purple',
     'Ens_P20': 'brown',
     'Ens_P30': 'pink',
@@ -75,8 +76,12 @@ MODEL_STYLE = {
     'pers_ds_median': 'olive'
 }
 FC_STYLES = {
-    'base': {'color': 'black', 'marker': 'D', 'label': 'Forecaster (Base: 0.5)'},
-    'conservative': {'color': 'darkgray', 'marker': 'X', 'label': 'Forecaster (All: 0.0)'}
+    'base': {'color': 'black', 
+             'marker': 'D', 
+             'label': 'Forecaster (Base: 0.5)'},
+    'conservative': {'color': 'darkgray', 
+                     'marker': 'X', 
+                     'label': 'Forecaster (All: 0.0)'}
 }
 
 DATES = [
@@ -116,7 +121,6 @@ with xr.open_dataset(ENS_PATH, decode_timedelta=True) as ds_ens:
     
     # 3. Extract "Worst Case" (Minimum member)
     model_data['Ens_WorstCase'] = ens_aligned.min(dim='number').to_series().reindex(time_vec)
-    
     # 4. Probabilistic Triggers
     # Calculate fraction of members
     if HIGHER_THAN_FOG_THRESH:
@@ -130,6 +134,7 @@ with xr.open_dataset(ENS_PATH, decode_timedelta=True) as ds_ens:
 
     model_data['Ens_P20'] = pd.Series(np.where(prob_fog > 0.20, event_value, non_event_value), index=time_vec)
     model_data['Ens_P30'] = pd.Series(np.where(prob_fog > 0.30, event_value, non_event_value), index=time_vec)
+    model_data['Ens_BestCase'] = pd.Series(np.where(prob_fog > 0.98, event_value, non_event_value), index=time_vec)
 
 # Process "persistent" forecaster data
 pers_ds = xr.open_dataset(PERS_PATH, decode_timedelta=True)
@@ -355,7 +360,7 @@ vf.plot_taf_window(df_eval, FOG_THRESH, '2025-09-03', '2025-09-16')
 # 3. Visual summary with TAF uncertainty
 vf.plot_vis_summary(df_eval, df_eval['obs_vis'], 
                     model_data["IFS"], model_data["lowLvlMean"], FOG_THRESH, 
-                    start_date="2025-08-19", end_date="2025-08-25")
+                    start_date="2025-09-05", end_date="2025-09-05")
 
 # 4. PDFs of observations
 periods = [
