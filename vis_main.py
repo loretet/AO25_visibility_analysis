@@ -81,7 +81,17 @@ FC_STYLES = {
              'label': 'Forecaster (Base: 0.5)'},
     'conservative': {'color': 'darkgray', 
                      'marker': 'X', 
-                     'label': 'Forecaster (All: 0.0)'}
+                     'label': 'Forecaster (All: 0.0)'},
+    'first_half': {
+        'color': 'magenta',
+        'marker': '^',
+        'label': 'Forecaster (First Half)'
+    },
+    'second_half': {
+        'color': 'teal',
+        'marker': 'v',
+        'label': 'Forecaster (Second Half)'
+    }
 }
 
 DATES = [
@@ -245,6 +255,8 @@ models_lib_15min = {k: v for k, v in ev_lib_05_15min.items() if k != 'Forecaster
 
 multi_period_results = []
 mask_valid = df_eval['is_valid'] == True
+mask_valid_first = df_eval['is_valid_first_half'] == True
+mask_valid_second = df_eval['is_valid_second_half'] == True
 
 for start_t, end_t, p_name in DATES:
     t_mask = (df_eval.index >= start_t) & (df_eval.index <= end_t)
@@ -258,12 +270,70 @@ for start_t, end_t, p_name in DATES:
     res_models_5 = vf.compute_all_metrics(truth_5min.loc[eval_mask_models], mod_window_lib_5)
     res_fc_05_5 = pd.DataFrame(vf.get_metrics(ev_lib_05_5min['Forecaster'].loc[eval_mask_fc], truth_5min.loc[eval_mask_fc]), index=['Forecaster_05'])
     res_fc_00_5 = pd.DataFrame(vf.get_metrics(ev_lib_00_5min['Forecaster'].loc[eval_mask_fc], truth_5min.loc[eval_mask_fc]), index=['Forecaster_00'])
+    res_fc_first_00_5 = pd.DataFrame(
+        vf.get_metrics(
+            ev_lib_00_5min['Forecaster'].loc[t_mask & mask_valid_first],
+            truth_5min.loc[t_mask & mask_valid_first]
+        ),
+        index=['Forecaster_FirstHalf_00']
+    )
+    res_fc_first_05_5 = pd.DataFrame(
+        vf.get_metrics(
+            ev_lib_05_5min['Forecaster'].loc[t_mask & mask_valid_first],
+            truth_5min.loc[t_mask & mask_valid_first]
+        ),
+        index=['Forecaster_FirstHalf_05']
+    )
+    res_fc_second_00_5 = pd.DataFrame(
+        vf.get_metrics(
+            ev_lib_00_5min['Forecaster'].loc[t_mask & mask_valid_second],
+            truth_5min.loc[t_mask & mask_valid_second]
+        ),
+        index=['Forecaster_SecondHalf_00']
+    )
+
+    res_fc_second_05_5 = pd.DataFrame(
+        vf.get_metrics(
+            ev_lib_05_5min['Forecaster'].loc[t_mask & mask_valid_second],
+            truth_5min.loc[t_mask & mask_valid_second]
+        ),
+        index=['Forecaster_SecondHalf_05']
+    )
 
     # Compute 15min metrics
     mod_window_lib_15 = {k: v.loc[eval_mask_models] for k, v in models_lib_15min.items()}
     res_models_15 = vf.compute_all_metrics(truth_15min.loc[eval_mask_models], mod_window_lib_15)
     res_fc_05_15 = pd.DataFrame(vf.get_metrics(ev_lib_05_15min['Forecaster'].loc[eval_mask_fc], truth_15min.loc[eval_mask_fc]), index=['Forecaster_05'])
     res_fc_00_15 = pd.DataFrame(vf.get_metrics(ev_lib_00_15min['Forecaster'].loc[eval_mask_fc], truth_15min.loc[eval_mask_fc]), index=['Forecaster_00'])
+    res_fc_first_00_15 = pd.DataFrame(
+        vf.get_metrics(
+            ev_lib_00_15min['Forecaster'].loc[t_mask & mask_valid_first],
+            truth_15min.loc[t_mask & mask_valid_first]
+        ),
+        index=['Forecaster_FirstHalf_00']
+    )
+    res_fc_first_05_15 = pd.DataFrame(
+        vf.get_metrics(
+            ev_lib_05_15min['Forecaster'].loc[t_mask & mask_valid_first],
+            truth_15min.loc[t_mask & mask_valid_first]
+        ),
+        index=['Forecaster_FirstHalf_05']
+    )
+    res_fc_second_00_15 = pd.DataFrame(
+        vf.get_metrics(
+            ev_lib_00_15min['Forecaster'].loc[t_mask & mask_valid_second],
+            truth_15min.loc[t_mask & mask_valid_second]
+        ),
+        index=['Forecaster_SecondHalf_00']
+    )
+
+    res_fc_second_05_15 = pd.DataFrame(
+        vf.get_metrics(
+            ev_lib_05_15min['Forecaster'].loc[t_mask & mask_valid_second],
+            truth_15min.loc[t_mask & mask_valid_second]
+        ),
+        index=['Forecaster_SecondHalf_05']
+    )
 
     # Store for plotting
     multi_period_results.append({
@@ -272,7 +342,15 @@ for start_t, end_t, p_name in DATES:
         'fc_05_5min': res_fc_05_5.iloc[0],
         'fc_05_15min': res_fc_05_15.iloc[0],
         'fc_00_5min': res_fc_00_5.iloc[0],
-        'fc_00_15min': res_fc_00_15.iloc[0]
+        'fc_00_15min': res_fc_00_15.iloc[0],
+        'fc_first_00_5min': res_fc_first_00_5.iloc[0],
+        'fc_first_00_15min': res_fc_first_00_15.iloc[0],
+        'fc_second_00_5min': res_fc_second_00_5.iloc[0],
+        'fc_second_00_15min': res_fc_second_00_15.iloc[0],
+        'fc_first_05_5min': res_fc_first_05_5.iloc[0],
+        'fc_first_05_15min': res_fc_first_05_15.iloc[0],
+        'fc_second_05_5min': res_fc_second_05_5.iloc[0],
+        'fc_second_05_15min': res_fc_second_05_15.iloc[0],
     })
 
 # Compute Brier score

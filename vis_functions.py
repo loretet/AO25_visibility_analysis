@@ -89,9 +89,17 @@ def df_TAF_gen(taf_table, time_vec, debug):
     - Visibility values are in kilometers (km).
     - Missing or invalid TAF strings are skipped with error logging.
     """
-    columns = ['base','tempo','becmg',"prob30","prob40", "main_vis", "is_valid"]
+    columns = [
+        'base','tempo','becmg',"prob30","prob40",
+        "main_vis",
+        "is_valid",
+        "is_valid_first_half",
+        "is_valid_second_half"
+    ]
     df = pd.DataFrame(np.nan, index=time_vec, columns=columns)
     df['is_valid'] = False 
+    df['is_valid_first_half'] = False
+    df['is_valid_second_half'] = False
 
     for idx, row in taf_table.iterrows():
         try:
@@ -109,6 +117,14 @@ def df_TAF_gen(taf_table, time_vec, debug):
 
             # Set validity mask
             df.loc[taf_start:taf_end, 'is_valid'] = True
+
+            # Split TAF validity window
+            taf_duration = taf_end - taf_start
+            midpoint = taf_start + taf_duration / 2
+
+            # First half includes midpoint
+            df.loc[taf_start:midpoint, 'is_valid_first_half'] = True
+            df.loc[midpoint:taf_end, 'is_valid_second_half'] = True
 
             def parse_vis_dist(dist_str):
 
@@ -722,6 +738,121 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
         ax.scatter(1 - fc00_15['FAR'], fc00_15['POD'], s=150, c=c_cons, marker="D", edgecolor='black', zorder=6, alpha=0.4)
         ax.plot([1 - fc00_5['FAR'], 1 - fc00_15['FAR']], [fc00_5['POD'], fc00_15['POD']], c=c_cons, linewidth=1.2, linestyle="--", alpha=0.3, zorder=4)
 
+        fcf00_5, fcf00_15 = results['fc_first_00_5min'], results['fc_first_00_15min']
+        fcf05_5, fcf05_15 = results['fc_first_05_5min'], results['fc_first_05_15min']
+        fcs00_5, fcs00_15 = results['fc_second_00_5min'], results['fc_second_00_15min']
+        fcs05_5, fcs05_15 = results['fc_second_05_5min'], results['fc_second_05_15min']
+        c_first = fc_style_map['first_half']['color']
+        c_second = fc_style_map['second_half']['color']
+
+        # _00
+        ax.scatter(
+            1 - fcf00_5['FAR'], fcf00_5['POD'],
+            marker='o',
+            c=c_first,
+            alpha=0.35,
+            s=150,
+            edgecolor='black'
+        )
+
+        ax.scatter(
+            1 - fcf00_15['FAR'], fcf00_15['POD'],
+            marker='o',
+            c=c_first,
+            alpha=0.2,
+            s=150,
+            edgecolor='black'
+        )
+
+        # _05
+        ax.scatter(
+            1 - fcf05_5['FAR'], fcf05_5['POD'],
+            marker='D',
+            c=c_first,
+            alpha=1.0,
+            s=150,
+            edgecolor='black'
+        )
+
+        ax.scatter(
+            1 - fcf05_15['FAR'], fcf05_15['POD'],
+            marker='D',
+            c=c_first,
+            alpha=0.6,
+            s=150,
+            edgecolor='black'
+        )
+
+        # _00
+        ax.scatter(
+            1 - fcs00_5['FAR'], fcs00_5['POD'],
+            marker='o',
+            c=c_second,
+            alpha=0.35,
+            s=150,
+            edgecolor='black'
+        )
+
+        ax.scatter(
+            1 - fcs00_15['FAR'], fcs00_15['POD'],
+            marker='o',
+            c=c_second,
+            alpha=0.2,
+            s=150,
+            edgecolor='black'
+        )
+
+        # _05
+        ax.scatter(
+            1 - fcs05_5['FAR'], fcs05_5['POD'],
+            marker='D',
+            c=c_second,
+            alpha=1.0,
+            s=150,
+            edgecolor='black'
+        )
+
+        ax.scatter(
+            1 - fcs05_15['FAR'], fcs05_15['POD'],
+            marker='D',
+            c=c_second,
+            alpha=0.6,
+            s=150,
+            edgecolor='black'
+        )
+
+        ax.plot(
+            [1 - fcf05_5['FAR'], 1 - fcf05_15['FAR']],
+            [fcf05_5['POD'], fcf05_15['POD']],
+            color=c_first,
+            linestyle='-',
+            alpha=0.8
+        )
+
+        ax.plot(
+            [1 - fcf00_5['FAR'], 1 - fcf00_15['FAR']],
+            [fcf00_5['POD'], fcf00_15['POD']],
+            color=c_first,
+            linestyle='--',
+            alpha=0.4
+        )
+
+        ax.plot(
+            [1 - fcs05_5['FAR'], 1 - fcs05_15['FAR']],
+            [fcs05_5['POD'], fcs05_15['POD']],
+            color=c_second,
+            linestyle='-',
+            alpha=0.8
+        )
+
+        ax.plot(
+            [1 - fcs00_5['FAR'], 1 - fcs00_15['FAR']],
+            [fcs00_5['POD'], fcs00_15['POD']],
+            color=c_second,
+            linestyle='--',
+            alpha=0.4
+        )
+
         # Titles and labels
         ax.set_title(p_name, pad=15, fontweight='bold')
         ax.text(0.05, 0.95, f"{chr(97+i)})", transform=ax.transAxes, fontsize=14, fontweight='bold', va='top', bbox=dict(boxstyle="square,pad=0.3", facecolor="white", alpha=1))
@@ -739,11 +870,33 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
     handles.append(Line2D([0], [0], color='none', marker='o', markerfacecolor=fc_style_map['base']['color'], markeredgecolor='black', label=fc_style_map['base']['label'], markersize=10))
     handles.append(Line2D([0], [0], color='none', marker='o', markerfacecolor=fc_style_map['conservative']['color'], markeredgecolor='black', label=fc_style_map['conservative']['label'], markersize=10, alpha=0.4))
     
+    # First/second halves for forecaster
+    handles.extend([
+        Line2D(
+            [0], [0],
+            color='none',
+            marker='o',
+            markerfacecolor=fc_style_map['first_half']['color'],
+            markeredgecolor='black',
+            label='Forecaster (First Half)',
+            markersize=10
+        ),
+        Line2D(
+            [0], [0],
+            color='none',
+            marker='o',
+            markerfacecolor=fc_style_map['second_half']['color'],
+            markeredgecolor='black',
+            label='Forecaster (Second Half)',
+            markersize=10
+        ),
+    ])
+
     # Observation time indicators
     handles.append(Line2D([0], [0], marker='o', color='none', markeredgecolor='black', label='5 min obs', markersize=8))
     handles.append(Line2D([0], [0], marker='D', color='none', markeredgecolor='black', label='15 min obs', markersize=8))
     
-    axs[0].legend(handles=handles, frameon=True, loc='lower right', prop={'size': 7}, ncols=2)
+    axs[0].legend(handles=handles, frameon=True, loc='lower right', prop={'size': 7}, ncols=3)
 
     # 6. Colorbars
     for idx in [1, 3]:
@@ -1232,3 +1385,4 @@ def calculate_ets(a, b, c, d):
     ets = numerator / denominator
     
     return ets
+# %%
