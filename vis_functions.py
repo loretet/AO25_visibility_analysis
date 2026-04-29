@@ -434,7 +434,7 @@ def plot_vis_summary(df, vis_obs, vis_mod1, vis_mod2, fog_thresh, start_date=Non
     mod_series1 = vis_mod1.reindex(df.index, method='nearest')
     mod_series2 = vis_mod2.reindex(df.index, method='nearest')
     
-    fig, ax = plt.subplots(figsize=(14, 7), dpi=100)
+    fig, ax = plt.subplots(figsize=(14, 7))
     
     if start_date and end_date:
         plot_df = df.loc[start_date:end_date]
@@ -450,8 +450,8 @@ def plot_vis_summary(df, vis_obs, vis_mod1, vis_mod2, fog_thresh, start_date=Non
             label='TAF Main (Base/BECMG)', marker="o")
     ax.plot(plot_df.index, plot_mod1, color='blue', linestyle='--', linewidth=1.5, 
             label='IFS Oper. model')
-    ax.plot(plot_df.index, plot_mod2, color='green', linestyle='--', linewidth=1.5, 
-            label='IFS lowLvlMean model')
+    # ax.plot(plot_df.index, plot_mod2, color='green', linestyle='--', linewidth=1.5, 
+    #         label='IFS lowLvlMean model')
     ax.plot(plot_df.index, plot_obs, color='crimson', linewidth=2, label='Oden Observations')
 
     ax.set_yscale('log')
@@ -459,7 +459,7 @@ def plot_vis_summary(df, vis_obs, vis_mod1, vis_mod2, fog_thresh, start_date=Non
     y_ticks = [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10]
     ax.set_yticks(y_ticks)
     ax.set_yticklabels([str(t) for t in y_ticks])
-    ax.axhline(y=fog_thresh, color='red', linestyle=':', alpha=0.5, label='Fog Threshold (1km)')
+    ax.axhline(y=fog_thresh, color='red', linestyle=':', alpha=0.5, label='Fog Threshold (0.8 km)')
     ax.set_ylabel('Visibility [km] (Log Scale)')
     ax.grid(True, which='both', linestyle='--', alpha=0.4)
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%d %b\n%H:%M'))
@@ -621,7 +621,9 @@ def plot_performance_diagram(pods, fars, labels, colors=None):
     SR_grid, POD_grid = np.meshgrid(x, y)
     CSI = 1 / (1/SR_grid + 1/POD_grid - 1) 
 
-    fig, ax = plt.subplots(figsize=(10, 8), dpi=100)
+    fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(10, 8), dpi=100, squeeze=False)
+    axs = axs.flatten()
+    ax = axs[0]
     contour = ax.contourf(SR_grid, POD_grid, CSI, levels=np.arange(0, 1.1, 0.1), cmap='Greys', alpha=0.2)
     cbar = plt.colorbar(contour, ax=ax, pad=0.075)
     cbar.set_label('Critical Success Index (CSI)', fontsize=14)
@@ -644,7 +646,7 @@ def plot_performance_diagram(pods, fars, labels, colors=None):
     ax.set_ylabel('Probability of Detection (POD)', fontsize=14)
     ax.grid(True, linestyle=':', alpha=0.4)
     ax.legend(loc='lower right', frameon=True, prop={'size': 7}, ncols=2)
-    plt.tight_layout()
+    fig.tight_layout()
     return fig, ax
 
 def plot_multi_period_performance(results_list, period_names, model_style_map, fc_style_map):
@@ -678,7 +680,7 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
     SR_grid, POD_grid = np.meshgrid(x, y)
     CSI = 1 / (1/SR_grid + 1/POD_grid - 1)
 
-    fig, axs = plt.subplots(2, 2, figsize=(16, 14), dpi=300)
+    fig, axs = plt.subplots(2, 2, figsize=(16, 14))
     axs = axs.flatten()
     contour_mappable = None
 
@@ -724,6 +726,10 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
         ax.set_title(p_name, pad=15, fontweight='bold')
         ax.text(0.05, 0.95, f"{chr(97+i)})", transform=ax.transAxes, fontsize=14, fontweight='bold', va='top', bbox=dict(boxstyle="square,pad=0.3", facecolor="white", alpha=1))
         ax.set_xlim(0, 1); ax.set_ylim(0, 1)
+        axs[2].set_xlabel('Success Ratio (1 - FAR)', fontsize=14)
+        axs[3].set_xlabel('Success Ratio (1 - FAR)', fontsize=14)
+        axs[0].set_ylabel('Probability of Detection (POD)', fontsize=14)
+        axs[2].set_ylabel('Probability of Detection (POD)', fontsize=14)
         ax.grid(True, linestyle=':', alpha=0.4)
 
     # 5. Global Legend Construction
@@ -772,7 +778,7 @@ def plot_taf_window(df, fog_thresh, start_time, end_time):
     ax : matplotlib.axes.Axes
         Axes object for further customization.
     """
-    fig, ax = plt.subplots(figsize=(12, 6), dpi=100)
+    fig, ax = plt.subplots(figsize=(12, 6))
     pdf = df.loc[start_time:end_time]
     
     ax.plot(pdf.index, pdf.best_vis, c="forestgreen", ls="--", alpha=0.7, label="Best Case")
@@ -1007,7 +1013,7 @@ def plot_talagrand_histogram(ens_data, obs_data):
 
     # 4. Plotting
     n_members = len(ens_data.number)
-    fig, ax = plt.subplots(figsize=(8, 5), dpi=100)
+    fig, ax = plt.subplots(figsize=(8, 5))
     
     # We want bins for each possible rank (0 to n_members)
     ax.hist(ranks, bins=np.arange(n_members + 2) - 0.5, 
