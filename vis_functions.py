@@ -757,7 +757,7 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
 
         ax.scatter(
             1 - fcf00_15['FAR'], fcf00_15['POD'],
-            marker='o',
+            marker='D',
             c=c_first,
             alpha=0.2,
             s=150,
@@ -767,7 +767,7 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
         # _05
         ax.scatter(
             1 - fcf05_5['FAR'], fcf05_5['POD'],
-            marker='D',
+            marker='o',
             c=c_first,
             alpha=1.0,
             s=150,
@@ -795,7 +795,7 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
 
         ax.scatter(
             1 - fcs00_15['FAR'], fcs00_15['POD'],
-            marker='o',
+            marker='D',
             c=c_second,
             alpha=0.2,
             s=150,
@@ -805,7 +805,7 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
         # _05
         ax.scatter(
             1 - fcs05_5['FAR'], fcs05_5['POD'],
-            marker='D',
+            marker='o',
             c=c_second,
             alpha=1.0,
             s=150,
