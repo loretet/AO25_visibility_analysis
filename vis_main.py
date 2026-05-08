@@ -78,10 +78,10 @@ MODEL_STYLE = {
 FC_STYLES = {
     'base': {'color': 'black', 
              'marker': 'D', 
-             'label': 'Forecaster (Base: 0.5)'},
+             'label': 'Forecaster (Base)'},
     'conservative': {'color': 'darkgray', 
                      'marker': 'X', 
-                     'label': 'Forecaster (All: 0.0)'},
+                     'label': 'Forecaster (All)'},
     'first_half': {
         'color': 'magenta',
         'marker': '^',

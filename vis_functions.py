@@ -17,7 +17,6 @@ from metar_taf_parser.parser.parser import TAFParser
 from sklearn.calibration import calibration_curve
 import seaborn as sns
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-import matplotlib.patches as mpatches
 from matplotlib.lines import Line2D
 
 #%% Functions
@@ -864,7 +863,7 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
         ax.grid(True, linestyle=':', alpha=0.4)
 
     # 5. Global Legend Construction
-    handles = [mpatches.Patch(color=c, label=l) for l, c in model_style_map.items()]
+    handles = [Line2D([0], [0], color="none", markerfacecolor=c, label=l, marker='o',  markeredgecolor='black',markersize=10) for l, c in model_style_map.items()]
     
     # Base/Conservative forecasters
     handles.append(Line2D([0], [0], color='none', marker='o', markerfacecolor=fc_style_map['base']['color'], markeredgecolor='black', label=fc_style_map['base']['label'], markersize=10))
@@ -889,6 +888,26 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
             markeredgecolor='black',
             label='Forecaster (Second Half)',
             markersize=10
+        ),
+        Line2D(
+            [0], [0],
+            color='none',
+            marker='o',
+            markerfacecolor=fc_style_map['first_half']['color'],
+            markeredgecolor='black',
+            label='Forecaster (All, first half)',
+            markersize=10,
+            alpha = 0.4
+        ),
+        Line2D(
+            [0], [0],
+            color='none',
+            marker='o',
+            markerfacecolor=fc_style_map['second_half']['color'],
+            markeredgecolor='black',
+            label='Forecaster (All, second half)',
+            markersize=10,
+            alpha = 0.4
         ),
     ])
 
