@@ -673,9 +673,9 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
     ----------
     results_list : list of dict
         List containing dictionaries of metrics for each period. Expected keys per dict:
-        - 'models_5min', 'models_15min': DataFrames of model metrics
-        - 'fc_05_5min', 'fc_05_15min': DataFrame rows for Forecaster (threshold 0.5)
-        - 'fc_00_5min', 'fc_00_15min': DataFrame rows for Forecaster (threshold 0.0)
+        - 'models': DataFrame of model metrics
+        - 'fc_05': DataFrame rows for Forecaster (threshold 0.5)
+        - 'fc_00': DataFrame rows for Forecaster (threshold 0.0)
     period_names : list of str
         Titles for each subplot (e.g., ['Period 1', 'Period 2', ...]).
     model_style_map : dict
@@ -710,100 +710,66 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
             ax.text(end_x, end_y, f' B={b}', fontsize=10, alpha=0.7)
 
         # 2. Plot Numerical Models
-        df_mod_5 = results['models_5min']
-        df_mod_15 = results['models_15min']
+        df_mod = results['models']
         
         for model_name, color in model_style_map.items():
-            if model_name in df_mod_5.index and model_name in df_mod_15.index:
-                row5, row15 = df_mod_5.loc[model_name], df_mod_15.loc[model_name]
-                # 5min marker
-                ax.scatter(1 - row5['FAR'], row5['POD'], s=120, c=color, edgecolor='black', zorder=5, marker="o")
-                # 15min marker
-                ax.scatter(1 - row15['FAR'], row15['POD'], s=120, c=color, edgecolor='black', zorder=5, marker="D")
-                # Connecting line
-                ax.plot([1 - row5['FAR'], 1 - row15['FAR']], [row5['POD'], row15['POD']], c=color, linewidth=0.8, alpha=0.6, zorder=3)
+            if model_name in df_mod.index:
+                row = df_mod.loc[model_name]
+                ax.scatter(1 - row['FAR'], row['POD'], s=120, c=color, edgecolor='black', zorder=5, marker="o")
 
         # 3. Plot Forecaster (0.5 Base Threshold)
-        fc05_5, fc05_15 = results['fc_05_5min'], results['fc_05_15min']
+        fc05 = results['fc_05']
         c_base = fc_style_map['base']['color']
-        ax.scatter(1 - fc05_5['FAR'], fc05_5['POD'], s=150, c=c_base, marker="o", edgecolor='black', zorder=6)
-        ax.scatter(1 - fc05_15['FAR'], fc05_15['POD'], s=150, c=c_base, marker="D", edgecolor='black', zorder=6)
-        ax.plot([1 - fc05_5['FAR'], 1 - fc05_15['FAR']], [fc05_5['POD'], fc05_15['POD']], c=c_base, linewidth=1.2, linestyle="--", alpha=0.6, zorder=4)
+        ax.scatter(1 - fc05['FAR'], fc05['POD'], s=150, c=c_base, marker="o", edgecolor='black', zorder=6)
 
         # 4. Plot Forecaster (0.0 Conservative Threshold)
-        fc00_5, fc00_15 = results['fc_00_5min'], results['fc_00_15min']
+        fc00 = results['fc_00']
         c_cons = fc_style_map['conservative']['color']
-        ax.scatter(1 - fc00_5['FAR'], fc00_5['POD'], s=150, c=c_cons, marker="o", edgecolor='black', zorder=6, alpha=0.4)
-        ax.scatter(1 - fc00_15['FAR'], fc00_15['POD'], s=150, c=c_cons, marker="D", edgecolor='black', zorder=6, alpha=0.4)
-        ax.plot([1 - fc00_5['FAR'], 1 - fc00_15['FAR']], [fc00_5['POD'], fc00_15['POD']], c=c_cons, linewidth=1.2, linestyle="--", alpha=0.3, zorder=4)
+        ax.scatter(1 - fc00['FAR'], fc00['POD'], s=150, c=c_cons, marker="D", edgecolor='black', zorder=6, alpha=0.4)
 
-        fcf00_5, fcf00_15 = results['fc_first_00_5min'], results['fc_first_00_15min']
-        fcf05_5, fcf05_15 = results['fc_first_05_5min'], results['fc_first_05_15min']
-        fcs00_5, fcs00_15 = results['fc_second_00_5min'], results['fc_second_00_15min']
-        fcs05_5, fcs05_15 = results['fc_second_05_5min'], results['fc_second_05_15min']
+        # Connect the two forecaster points with a line
+        ax.plot([1 - fc00['FAR'], 1 - fc05['FAR']], [fc00['POD'], fc05['POD']], c="darkgrey", linestyle="-", alpha=0.3, zorder=4)
+
+        fcf00 = results['fc_first_00']
+        fcf05 = results['fc_first_05']
+        fcs00 = results['fc_second_00']
+        fcs05 = results['fc_second_05']
         c_first = fc_style_map['first_half']['color']
         c_second = fc_style_map['second_half']['color']
 
         # _00
         ax.scatter(
-            1 - fcf00_5['FAR'], fcf00_5['POD'],
-            marker='o',
+            1 - fcf00['FAR'], fcf00['POD'],
+            marker='D',
             c=c_first,
             alpha=0.35,
             s=150,
             edgecolor='black'
         )
 
-        ax.scatter(
-            1 - fcf00_15['FAR'], fcf00_15['POD'],
-            marker='D',
-            c=c_first,
-            alpha=0.2,
-            s=150,
-            edgecolor='black'
-        )
-
         # _05
         ax.scatter(
-            1 - fcf05_5['FAR'], fcf05_5['POD'],
+            1 - fcf05['FAR'], fcf05['POD'],
             marker='o',
             c=c_first,
             alpha=1.0,
-            s=150,
-            edgecolor='black'
-        )
-
-        ax.scatter(
-            1 - fcf05_15['FAR'], fcf05_15['POD'],
-            marker='D',
-            c=c_first,
-            alpha=0.6,
             s=150,
             edgecolor='black'
         )
 
         # _00
         ax.scatter(
-            1 - fcs00_5['FAR'], fcs00_5['POD'],
-            marker='o',
+            1 - fcs00['FAR'], fcs00['POD'],
+            marker='D',
             c=c_second,
             alpha=0.35,
             s=150,
             edgecolor='black'
         )
 
-        ax.scatter(
-            1 - fcs00_15['FAR'], fcs00_15['POD'],
-            marker='D',
-            c=c_second,
-            alpha=0.2,
-            s=150,
-            edgecolor='black'
-        )
-
         # _05
         ax.scatter(
-            1 - fcs05_5['FAR'], fcs05_5['POD'],
+            1 - fcs05['FAR'], fcs05['POD'],
             marker='o',
             c=c_second,
             alpha=1.0,
@@ -811,45 +777,20 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
             edgecolor='black'
         )
 
-        ax.scatter(
-            1 - fcs05_15['FAR'], fcs05_15['POD'],
-            marker='D',
-            c=c_second,
-            alpha=0.6,
-            s=150,
-            edgecolor='black'
-        )
-
         ax.plot(
-            [1 - fcf05_5['FAR'], 1 - fcf05_15['FAR']],
-            [fcf05_5['POD'], fcf05_15['POD']],
+            [1 - fcf00['FAR'], 1 - fcf05['FAR']],
+            [fcf00['POD'], fcf05['POD']],
             color=c_first,
             linestyle='-',
-            alpha=0.8
+            alpha=0.3
         )
 
         ax.plot(
-            [1 - fcf00_5['FAR'], 1 - fcf00_15['FAR']],
-            [fcf00_5['POD'], fcf00_15['POD']],
-            color=c_first,
-            linestyle='--',
-            alpha=0.4
-        )
-
-        ax.plot(
-            [1 - fcs05_5['FAR'], 1 - fcs05_15['FAR']],
-            [fcs05_5['POD'], fcs05_15['POD']],
+            [1 - fcs00['FAR'], 1 - fcs05['FAR']],
+            [fcs00['POD'], fcs05['POD']],
             color=c_second,
             linestyle='-',
-            alpha=0.8
-        )
-
-        ax.plot(
-            [1 - fcs00_5['FAR'], 1 - fcs00_15['FAR']],
-            [fcs00_5['POD'], fcs00_15['POD']],
-            color=c_second,
-            linestyle='--',
-            alpha=0.4
+            alpha=0.3
         )
 
         # Titles and labels
@@ -867,7 +808,7 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
     
     # Base/Conservative forecasters
     handles.append(Line2D([0], [0], color='none', marker='o', markerfacecolor=fc_style_map['base']['color'], markeredgecolor='black', label=fc_style_map['base']['label'], markersize=10))
-    handles.append(Line2D([0], [0], color='none', marker='o', markerfacecolor=fc_style_map['conservative']['color'], markeredgecolor='black', label=fc_style_map['conservative']['label'], markersize=10, alpha=0.4))
+    handles.append(Line2D([0], [0], color='none', marker='D', markerfacecolor=fc_style_map['conservative']['color'], markeredgecolor='black', label=fc_style_map['conservative']['label'], markersize=10, alpha=0.4))
     
     # First/second halves for forecaster
     handles.extend([
@@ -892,28 +833,24 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
         Line2D(
             [0], [0],
             color='none',
-            marker='o',
+            marker='D',
             markerfacecolor=fc_style_map['first_half']['color'],
             markeredgecolor='black',
-            label='Forecaster (All, first half)',
+            label='Forecaster ("Any", first half)',
             markersize=10,
             alpha = 0.4
         ),
         Line2D(
             [0], [0],
             color='none',
-            marker='o',
+            marker='D',
             markerfacecolor=fc_style_map['second_half']['color'],
             markeredgecolor='black',
-            label='Forecaster (All, second half)',
+            label='Forecaster ("Any", second half)',
             markersize=10,
             alpha = 0.4
         ),
     ])
-
-    # Observation time indicators
-    handles.append(Line2D([0], [0], marker='o', color='none', markeredgecolor='black', label='5 min obs', markersize=8))
-    handles.append(Line2D([0], [0], marker='D', color='none', markeredgecolor='black', label='15 min obs', markersize=8))
     
     axs[0].legend(handles=handles, frameon=True, loc='lower right', prop={'size': 7}, ncols=3)
 
