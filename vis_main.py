@@ -42,7 +42,7 @@ if preproc:
 #%% SETTINGS AND PATHS
 # Settings
 FOG_THRESH = 0.8  # km  (0.8 km Cassel Aero threshold, 1 km WMO threshold)
-HIGHER_THAN_FOG_THRESH = False  # if True, looks at windows of opportnity (high visibility). If False, looks at low vis. events
+HIGHER_THAN_FOG_THRESH = True  # if True, looks at windows of opportnity (high visibility). If False, looks at low vis. events
 MODEL_24h = False # Whether to evaluate the full 24h forecast or just the TAF validity times:
                   #   True: the model gets evaluated over 24h, while the forecaster only on its active time
                   #   False: both model and forecaster are evaluated only on the TAFs validity window. Better imho
@@ -60,41 +60,40 @@ visas = "visas_10min"
 # Create model dictionary
 MODEL_PATHS = {
     'IFS': '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_oper_oden_20250811_20250915_day2_new_visibility_diagnostic_v1.nc',
-    'lowLvlMean': '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_diagnostic_lowLvlMean.nc',
+    'LowLvlMean': '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_diagnostic_lowLvlMean.nc',
 }
 
-PERS_PATH = "/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/AO2025_20250812-20250915_persistence_forecast.nc"
+PERS_PATH = "/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/AO2025_20250812-20250915_persistence_forecast_v2.nc"
 
 ENS_PATH = '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_ens_oden_2025-08-11_2025-09-15_vis_day2.nc'
 
 # Visual configuration
 MODEL_STYLE = {
     'IFS': 'blue',
-    'lowLvlMean': 'green',
-    'Ens_Median': 'orange',
-    'Ens_AllCases': 'red',  
-    'Ens_OneCase': 'purple',
-    'Ens_P20': 'brown',
-    'Ens_P30': 'pink',
-    'pers_ds_5min': 'cyan',
-    'pers_ds_median': 'olive'
+    'LowLvlMean': 'tab:blue',
+    'Ens_P30': 'darkgreen',
+    # 'Ens_AllCases': 'red',  
+    # 'Ens_OneCase': 'purple',
+    # 'Ens_P20': 'brown',
+    'Ens_P50': 'lightgreen',
+    'Persist_10min': 'black',
 }
 FC_STYLES = {
-    'base': {'color': 'black', 
+    'base': {'color': 'red', 
              'marker': 'D', 
-             'label': 'Forecaster (Base)'},
-    'conservative': {'color': 'darkgray', 
+             'label': 'TAF (Base)'},
+    'conservative': {'color': 'red', 
                      'marker': 'X', 
-                     'label': 'Forecaster (All)'},
+                     'label': 'TAF (All)'},
     'first_half': {
-        'color': 'magenta',
+        'color': 'purple',
         'marker': '^',
-        'label': 'Forecaster (First Half)'
+        'label': 'TAF (First Half)'
     },
     'second_half': {
-        'color': 'teal',
+        'color': 'magenta',
         'marker': 'v',
-        'label': 'Forecaster (Second Half)'
+        'label': 'TAF (Second Half)'
     }
 }
 
@@ -131,10 +130,10 @@ with xr.open_dataset(ENS_PATH, decode_timedelta=True) as ds_ens:
     ens_aligned = ds_ens.vis.clip(min=0, max=10000) * 1e-3
     
     # 2. Extract "Main Scenario" (Median)
-    model_data['Ens_Median'] = ens_aligned.median(dim='number').to_series().reindex(time_vec)
+    model_data['Ens_P50'] = ens_aligned.median(dim='number').to_series().reindex(time_vec)
     
     # 3. Extract "Worst Case" (Minimum member)
-    model_data['Ens_OneCase'] = ens_aligned.min(dim='number').to_series().reindex(time_vec)
+    # model_data['Ens_OneCase'] = ens_aligned.min(dim='number').to_series().reindex(time_vec)
     # 4. Probabilistic Triggers
     # Calculate fraction of members
     if HIGHER_THAN_FOG_THRESH:
@@ -146,14 +145,15 @@ with xr.open_dataset(ENS_PATH, decode_timedelta=True) as ds_ens:
     event_value = 10.0 if HIGHER_THAN_FOG_THRESH else 0.0
     non_event_value = 0.0 if HIGHER_THAN_FOG_THRESH else 10.0
 
-    model_data['Ens_P20'] = pd.Series(np.where(prob_fog > 0.20, event_value, non_event_value), index=time_vec)
-    model_data['Ens_P30'] = pd.Series(np.where(prob_fog > 0.30, event_value, non_event_value), index=time_vec)
-    model_data['Ens_AllCases'] = pd.Series(np.where(prob_fog > 0.98, event_value, non_event_value), index=time_vec)
+    # model_data['Ens_P20'] = pd.Series(np.where(prob_fog >= 0.20, event_value, non_event_value), index=time_vec)
+    model_data['Ens_P30'] = pd.Series(np.where(prob_fog >= 0.30, event_value, non_event_value), index=time_vec)
+    # model_data['Ens_AllCases'] = pd.Series(np.where(prob_fog > 0.98, event_value, non_event_value), index=time_vec)
 
 # Process "persistent" forecaster data
 pers_ds = xr.open_dataset(PERS_PATH, decode_timedelta=True)
-model_data["pers_ds_median"] = np.clip(pers_ds.persistence_median.to_series() * 1e-3, 0, 10).reindex(time_vec)
-model_data["pers_ds_5min"] =np.clip(pers_ds.persistence_5min.to_series() * 1e-3, 0, 10).reindex(time_vec)
+# model_data["pers_ds_median"] = np.clip(pers_ds.persistence_median.to_series() * 1e-3, 0, 10).reindex(time_vec)
+# model_data["pers_ds_5min"] =np.clip(pers_ds.persistence_5min.to_series() * 1e-3, 0, 10).reindex(time_vec)
+model_data["Persist_10min"] =np.clip(pers_ds.persistence10m_minimum.to_series() * 1e-3, 0, 10).reindex(time_vec)
 
 # 2. Load and Process TAFs
 taf_table = pd.read_excel(TAF_PATH, header=1, sheet_name='Sheet1').reset_index(drop=True)
@@ -358,7 +358,7 @@ vf.plot_taf_window(df_eval, FOG_THRESH, '2025-09-03', '2025-09-16')
 
 # 3. Visual summary with TAF uncertainty
 vf.plot_vis_summary(df_eval, df_eval['obs_vis'], 
-                    model_data["IFS"], model_data["lowLvlMean"], FOG_THRESH, 
+                    model_data["IFS"], model_data["LowLvlMean"], FOG_THRESH, 
                     start_date="2025-09-05", end_date="2025-09-05")
 
 # 4. PDFs of observations

@@ -18,6 +18,7 @@ from sklearn.calibration import calibration_curve
 import seaborn as sns
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.lines import Line2D
+from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes, mark_inset
 
 #%% Functions
 def TAF_parser(taf_string, debug=False):
@@ -647,7 +648,11 @@ def plot_performance_diagram(pods, fars, labels, colors=None):
     for b in bias_values:
         end_x, end_y = (1, b) if b <= 1 else (1/b, 1)
         ax.plot([0, end_x], [0, end_y], color='gray', linestyle='--', linewidth=0.8, alpha=0.5)
-        ax.text(end_x, end_y, f' B={b}', fontsize=13, alpha=0.7)
+        if b<=1:
+            ax.text(end_x, end_y, f' B={b}', fontsize=13, alpha=0.7)
+        else:
+            ax.text(end_x, end_y + 0.8, f' B={b}', fontsize=10, alpha=0.7, 
+                        ha='center', va='bottom', clip_on=False)
 
     if colors is None:
         colors = plt.cm.tab10(np.linspace(0, 1, len(pods)))
@@ -699,36 +704,71 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
     axs = axs.flatten()
     contour_mappable = None
 
-    for i, (results, p_name) in enumerate(zip(results_list, period_names)):
+    # Put entire period first and then three separate periods
+    reordered_results = [results_list[-1]] + results_list[:-1]
+    reordered_periods = [period_names[-1]] + period_names[:-1]
+
+    for i, (results, p_name) in enumerate(zip(reordered_results, reordered_periods)):
         ax = axs[i]
+
+        # 0. Bold borders for 1st subplot
+        if i == 0:
+            for spine in ax.spines.values():
+                spine.set_linewidth(1.8)       # Make borders thick
+                spine.set_color('black')       # Ensure solid black color
+                spine.set_zorder(10)           # Bring borders to the front
         
         # 1. Background (CSI Contours and Bias Lines)
         contour_mappable = ax.contourf(SR_grid, POD_grid, CSI, levels=np.arange(0, 1.1, 0.1), cmap='Greys', alpha=0.2)
         for b in [0.5, 0.8, 1, 1.3, 1.5, 2, 4]:
             end_x, end_y = (1, b) if b <= 1 else (1/b, 1)
             ax.plot([0, end_x], [0, end_y], color='gray', linestyle='--', linewidth=0.8, alpha=0.5)
-            ax.text(end_x, end_y, f' B={b}', fontsize=10, alpha=0.7)
+            if b<=1:
+                ax.text(end_x, end_y, f' B={b}', fontsize=10, alpha=0.7)
+            else:
+                ax.text(end_x, end_y + 0.008, f' B={b}', fontsize=10, alpha=0.7, 
+                            ha='center', va='bottom', clip_on=False)
+
+        # Inset plotting
+        ax_ins = zoomed_inset_axes(ax, zoom=2.5, loc='lower left', bbox_to_anchor=(0.08, 0.08), bbox_transform=ax.transAxes)
+        ax_ins.set_facecolor('white')  
+        inset_x_lim = [0.0, 0.3] 
+        inset_y_lim = [0.2, 0.5]
+        ax_ins.set_xlim(inset_x_lim)
+        ax_ins.set_ylim(inset_y_lim)
+        
+        # Re-plot background CSI 
+        ax_ins.contourf(SR_grid, POD_grid, CSI, levels=np.arange(0, 1.1, 0.1), cmap='Greys', alpha=0.15)
+        for b in [0.5, 0.8, 1, 1.3, 1.5, 2, 4]:
+            end_x, end_y = (1, b) if b <= 1 else (1/b, 1)
+            ax_ins.plot([0, end_x], [0, end_y], color='gray', linestyle='--', linewidth=0.6, alpha=0.3)
+        ax_ins.tick_params(axis='both', which='major', labelsize=6)
 
         # 2. Plot Numerical Models
         df_mod = results['models']
-        
         for model_name, color in model_style_map.items():
             if model_name in df_mod.index:
                 row = df_mod.loc[model_name]
-                ax.scatter(1 - row['FAR'], row['POD'], s=120, c=color, edgecolor='black', zorder=5, marker="o")
-
+                mrkr = "*" if model_name =="Persist_10min" else "o"
+                sz = 180 if model_name =="Persist_10min" else 120
+                sz_int = 120 if model_name =="Persist_10min" else 60
+                ax.scatter(1 - row['FAR'], row['POD'], s=sz, c=color, edgecolor='black', zorder=5, marker=mrkr)
+                ax_ins.scatter(1 - row['FAR'], row['POD'], s=sz_int, c=color, edgecolor='black', zorder=5, marker="o")
         # 3. Plot Forecaster (0.5 Base Threshold)
         fc05 = results['fc_05']
         c_base = fc_style_map['base']['color']
         ax.scatter(1 - fc05['FAR'], fc05['POD'], s=150, c=c_base, marker="o", edgecolor='black', zorder=6)
+        ax_ins.scatter(1 - fc05['FAR'], fc05['POD'], s=90, c=c_base, marker="o", edgecolor='black', zorder=6)
 
         # 4. Plot Forecaster (0.0 Conservative Threshold)
         fc00 = results['fc_00']
         c_cons = fc_style_map['conservative']['color']
         ax.scatter(1 - fc00['FAR'], fc00['POD'], s=150, c=c_cons, marker="D", edgecolor='black', zorder=6, alpha=0.4)
+        ax_ins.scatter(1 - fc00['FAR'], fc00['POD'], s=90, c=c_cons, marker="D", edgecolor='black', zorder=6, alpha=0.4)
 
         # Connect the two forecaster points with a line
         ax.plot([1 - fc00['FAR'], 1 - fc05['FAR']], [fc00['POD'], fc05['POD']], c="darkgrey", linestyle="-", alpha=0.3, zorder=4)
+        ax_ins.plot([1 - fc00['FAR'], 1 - fc05['FAR']], [fc00['POD'], fc05['POD']], c="darkgrey", linestyle="-", alpha=0.3, zorder=4)
 
         fcf00 = results['fc_first_00']
         fcf05 = results['fc_first_05']
@@ -737,64 +777,18 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
         c_first = fc_style_map['first_half']['color']
         c_second = fc_style_map['second_half']['color']
 
-        # _00
-        ax.scatter(
-            1 - fcf00['FAR'], fcf00['POD'],
-            marker='D',
-            c=c_first,
-            alpha=0.35,
-            s=150,
-            edgecolor='black'
-        )
-
-        # _05
-        ax.scatter(
-            1 - fcf05['FAR'], fcf05['POD'],
-            marker='o',
-            c=c_first,
-            alpha=1.0,
-            s=150,
-            edgecolor='black'
-        )
-
-        # _00
-        ax.scatter(
-            1 - fcs00['FAR'], fcs00['POD'],
-            marker='D',
-            c=c_second,
-            alpha=0.35,
-            s=150,
-            edgecolor='black'
-        )
-
-        # _05
-        ax.scatter(
-            1 - fcs05['FAR'], fcs05['POD'],
-            marker='o',
-            c=c_second,
-            alpha=1.0,
-            s=150,
-            edgecolor='black'
-        )
-
-        ax.plot(
-            [1 - fcf00['FAR'], 1 - fcf05['FAR']],
-            [fcf00['POD'], fcf05['POD']],
-            color=c_first,
-            linestyle='-',
-            alpha=0.3
-        )
-
-        ax.plot(
-            [1 - fcs00['FAR'], 1 - fcs05['FAR']],
-            [fcs00['POD'], fcs05['POD']],
-            color=c_second,
-            linestyle='-',
-            alpha=0.3
-        )
-
+        for axis, size_mod in [(ax, 150), (ax_ins, 90)]:
+            axis.scatter(1 - fcf00['FAR'], fcf00['POD'], marker='D', c=c_first, alpha=0.4, s=size_mod, edgecolor='black')
+            axis.scatter(1 - fcf05['FAR'], fcf05['POD'], marker='o', c=c_first, alpha=1.0, s=size_mod, edgecolor='black')
+            axis.scatter(1 - fcs00['FAR'], fcs00['POD'], marker='D', c=c_second, alpha=0.4, s=size_mod, edgecolor='black')
+            axis.scatter(1 - fcs05['FAR'], fcs05['POD'], marker='o', c=c_second, alpha=1.0, s=size_mod, edgecolor='black')
+            axis.plot([1 - fcf00['FAR'], 1 - fcf05['FAR']], [fcf00['POD'], fcf05['POD']], color=c_first, linestyle='-', alpha=0.3)
+            axis.plot([1 - fcs00['FAR'], 1 - fcs05['FAR']], [fcs00['POD'], fcs05['POD']], color=c_second, linestyle='-', alpha=0.3)
+        mark_inset(ax, ax_ins, loc1=2, loc2=4, fc="none", ec="black", lw=0.5, linestyle=":")
+        ax.set_title(p_name, fontsize=12, fontweight='bold' if i==0 else 'normal')
+        
         # Titles and labels
-        ax.set_title(p_name, pad=15, fontweight='bold')
+        ax.set_title(p_name, pad=20, fontweight='bold')
         ax.text(0.05, 0.95, f"{chr(97+i)})", transform=ax.transAxes, fontsize=14, fontweight='bold', va='top', bbox=dict(boxstyle="square,pad=0.3", facecolor="white", alpha=1))
         ax.set_xlim(0, 1); ax.set_ylim(0, 1)
         axs[2].set_xlabel('Success Ratio (1 - FAR)', fontsize=14)
@@ -804,8 +798,10 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
         ax.grid(True, linestyle=':', alpha=0.4)
 
     # 5. Global Legend Construction
-    handles = [Line2D([0], [0], color="none", markerfacecolor=c, label=l, marker='o',  markeredgecolor='black',markersize=10) for l, c in model_style_map.items()]
-    
+    handles = [
+        Line2D([0], [0], color="none", markerfacecolor=c, label=l, marker='o', markeredgecolor='black', markersize=10) 
+        for l, c in list(model_style_map.items())[:-1]
+    ]
     # Base/Conservative forecasters
     handles.append(Line2D([0], [0], color='none', marker='o', markerfacecolor=fc_style_map['base']['color'], markeredgecolor='black', label=fc_style_map['base']['label'], markersize=10))
     handles.append(Line2D([0], [0], color='none', marker='D', markerfacecolor=fc_style_map['conservative']['color'], markeredgecolor='black', label=fc_style_map['conservative']['label'], markersize=10, alpha=0.4))
@@ -818,16 +814,7 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
             marker='o',
             markerfacecolor=fc_style_map['first_half']['color'],
             markeredgecolor='black',
-            label='Forecaster (First Half)',
-            markersize=10
-        ),
-        Line2D(
-            [0], [0],
-            color='none',
-            marker='o',
-            markerfacecolor=fc_style_map['second_half']['color'],
-            markeredgecolor='black',
-            label='Forecaster (Second Half)',
+            label='TAF (First Half)',
             markersize=10
         ),
         Line2D(
@@ -836,9 +823,18 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
             marker='D',
             markerfacecolor=fc_style_map['first_half']['color'],
             markeredgecolor='black',
-            label='Forecaster ("Any", first half)',
+            label='TAF ("Any", first half)',
             markersize=10,
             alpha = 0.4
+        ),
+        Line2D(
+            [0], [0],
+            color='none',
+            marker='o',
+            markerfacecolor=fc_style_map['second_half']['color'],
+            markeredgecolor='black',
+            label='TAF (Second Half)',
+            markersize=10
         ),
         Line2D(
             [0], [0],
@@ -846,18 +842,24 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
             marker='D',
             markerfacecolor=fc_style_map['second_half']['color'],
             markeredgecolor='black',
-            label='Forecaster ("Any", second half)',
+            label='TAF ("Any", second half)',
             markersize=10,
             alpha = 0.4
         ),
     ])
+
+    # Plot persistence forecast in legend
+    last_handle = [
+        Line2D([0], [0], color="none", markerfacecolor=c, label=l, marker='*', markeredgecolor='black', markersize=10) 
+        for l, c in [list(model_style_map.items())[-1]]
+    ]
     
-    axs[0].legend(handles=handles, frameon=True, loc='lower right', prop={'size': 7}, ncols=3)
+    axs[0].legend(handles=(handles + last_handle), frameon=True, loc='lower right', prop={'size': 7}, ncols=3)
 
     # 6. Colorbars
     for idx in [1, 3]:
         divider = make_axes_locatable(axs[idx])
-        cax = divider.append_axes("right", size="5%", pad=0.1)
+        cax = divider.append_axes("right", size="5%", pad=0.6)
         fig.colorbar(contour_mappable, cax=cax).set_label('CSI', fontsize=10)
 
     plt.tight_layout()
