@@ -42,7 +42,7 @@ if preproc:
 #%% SETTINGS AND PATHS
 # Settings
 FOG_THRESH = 0.8  # km  (0.8 km Cassel Aero threshold, 1 km WMO threshold)
-HIGHER_THAN_FOG_THRESH = True  # if True, looks at windows of opportnity (high visibility). If False, looks at low vis. events
+HIGHER_THAN_FOG_THRESH = False  # if True, looks at windows of opportnity (high visibility). If False, looks at low vis. events
 MODEL_24h = False # Whether to evaluate the full 24h forecast or just the TAF validity times:
                   #   True: the model gets evaluated over 24h, while the forecaster only on its active time
                   #   False: both model and forecaster are evaluated only on the TAFs validity window. Better imho
@@ -84,7 +84,7 @@ FC_STYLES = {
              'label': 'TAF (Base)'},
     'conservative': {'color': 'red', 
                      'marker': 'X', 
-                     'label': 'TAF (All)'},
+                     'label': 'TAF ("Any")'},
     'first_half': {
         'color': 'purple',
         'marker': '^',
@@ -314,11 +314,12 @@ for name in final_res.index:
 
 # 1. 2x2 Multi-Period Performance Diagram
 P_NAMES = [d[2] for d in DATES]
-fig_perf, axs_perf = vf.plot_multi_period_performance(
+vf.plot_multi_period_performance(
     results_list=multi_period_results,
     period_names=P_NAMES,
     model_style_map=MODEL_STYLE,
-    fc_style_map =FC_STYLES
+    fc_style_map =FC_STYLES,
+    higher_than_fog_thresh=HIGHER_THAN_FOG_THRESH
 )
 
 # 2. Visual Summary Bar Chart (Using Entire Cruise Data)

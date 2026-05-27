@@ -18,7 +18,6 @@ from sklearn.calibration import calibration_curve
 import seaborn as sns
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.lines import Line2D
-from mpl_toolkits.axes_grid1.inset_locator import zoomed_inset_axes, mark_inset
 
 #%% Functions
 def TAF_parser(taf_string, debug=False):
@@ -669,7 +668,7 @@ def plot_performance_diagram(pods, fars, labels, colors=None):
     fig.tight_layout()
     return fig, ax
 
-def plot_multi_period_performance(results_list, period_names, model_style_map, fc_style_map):
+def plot_multi_period_performance(results_list, period_names, model_style_map, fc_style_map, higher_than_fog_thresh):
     """
     Generates a 2x2 performance diagram comparing models and dual forecaster thresholds 
     across multiple time periods, using both 5-min and 15-min observations.
@@ -729,20 +728,33 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
                 ax.text(end_x, end_y + 0.008, f' B={b}', fontsize=10, alpha=0.7, 
                             ha='center', va='bottom', clip_on=False)
 
-        # Inset plotting
-        ax_ins = zoomed_inset_axes(ax, zoom=2.5, loc='lower left', bbox_to_anchor=(0.08, 0.08), bbox_transform=ax.transAxes)
-        ax_ins.set_facecolor('white')  
-        inset_x_lim = [0.0, 0.3] 
-        inset_y_lim = [0.2, 0.5]
-        ax_ins.set_xlim(inset_x_lim)
-        ax_ins.set_ylim(inset_y_lim)
-        
-        # Re-plot background CSI 
-        ax_ins.contourf(SR_grid, POD_grid, CSI, levels=np.arange(0, 1.1, 0.1), cmap='Greys', alpha=0.15)
-        for b in [0.5, 0.8, 1, 1.3, 1.5, 2, 4]:
-            end_x, end_y = (1, b) if b <= 1 else (1/b, 1)
-            ax_ins.plot([0, end_x], [0, end_y], color='gray', linestyle='--', linewidth=0.6, alpha=0.3)
-        ax_ins.tick_params(axis='both', which='major', labelsize=6)
+        if higher_than_fog_thresh:
+            # Inset plotting
+            if i==0:
+                ax_ins = ax.inset_axes([0.08, 0.15, 0.50, 0.56]) 
+                ax_ins.set_xlim([0.75, 1.0])
+                ax_ins.set_ylim([0.8, 1.0])
+            elif i==1:
+                ax_ins = ax.inset_axes([0.08, 0.15, 0.70, 0.27])
+                ax_ins.set_xlim([0.2, 0.9])
+                ax_ins.set_ylim([0.8, 1.0])
+            elif i==2:
+                ax_ins = ax.inset_axes([0.08, 0.15, 0.45, 0.62])
+                ax_ins.set_xlim([0.85, 1.0])
+                ax_ins.set_ylim([0.7, 1.0])
+            elif i==3:
+                ax_ins = ax.inset_axes([0.08, 0.15, 0.35, 0.46])
+                ax_ins.set_xlim([0.8, 1.0])
+                ax_ins.set_ylim([0.9, 1.0])
+            ax_ins.set_aspect('auto')
+            ax_ins.set_facecolor('white')
+            ax_ins.set_facecolor('white')  
+            # Re-plot background CSI 
+            ax_ins.contourf(SR_grid, POD_grid, CSI, levels=np.arange(0, 1.1, 0.1), cmap='Greys', alpha=0.15)
+            for b in [0.5, 0.8, 1, 1.3, 1.5, 2, 4]:
+                end_x, end_y = (1, b) if b <= 1 else (1/b, 1)
+                ax_ins.plot([0, end_x], [0, end_y], color='gray', linestyle='--', linewidth=0.6, alpha=0.3)
+            ax_ins.tick_params(axis='both', which='major', labelsize=6)
 
         # 2. Plot Numerical Models
         df_mod = results['models']
@@ -751,24 +763,28 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
                 row = df_mod.loc[model_name]
                 mrkr = "*" if model_name =="Persist_10min" else "o"
                 sz = 180 if model_name =="Persist_10min" else 120
-                sz_int = 120 if model_name =="Persist_10min" else 60
                 ax.scatter(1 - row['FAR'], row['POD'], s=sz, c=color, edgecolor='black', zorder=5, marker=mrkr)
-                ax_ins.scatter(1 - row['FAR'], row['POD'], s=sz_int, c=color, edgecolor='black', zorder=5, marker="o")
+                if higher_than_fog_thresh:
+                    ax_ins.scatter(1 - row['FAR'], row['POD'], s=sz, c=color, edgecolor='black', zorder=5, marker=mrkr)
         # 3. Plot Forecaster (0.5 Base Threshold)
+        sz = 120
         fc05 = results['fc_05']
         c_base = fc_style_map['base']['color']
-        ax.scatter(1 - fc05['FAR'], fc05['POD'], s=150, c=c_base, marker="o", edgecolor='black', zorder=6)
-        ax_ins.scatter(1 - fc05['FAR'], fc05['POD'], s=90, c=c_base, marker="o", edgecolor='black', zorder=6)
+        ax.scatter(1 - fc05['FAR'], fc05['POD'], s=sz, c=c_base, marker="o", edgecolor='black', zorder=6)
+        if higher_than_fog_thresh:
+            ax_ins.scatter(1 - fc05['FAR'], fc05['POD'], s=sz, c=c_base, marker="o", edgecolor='black', zorder=6)
 
         # 4. Plot Forecaster (0.0 Conservative Threshold)
         fc00 = results['fc_00']
         c_cons = fc_style_map['conservative']['color']
-        ax.scatter(1 - fc00['FAR'], fc00['POD'], s=150, c=c_cons, marker="D", edgecolor='black', zorder=6, alpha=0.4)
-        ax_ins.scatter(1 - fc00['FAR'], fc00['POD'], s=90, c=c_cons, marker="D", edgecolor='black', zorder=6, alpha=0.4)
+        ax.scatter(1 - fc00['FAR'], fc00['POD'], s=sz, c=c_cons, marker="D", edgecolor='black', zorder=6, alpha=0.4)
+        if higher_than_fog_thresh:
+            ax_ins.scatter(1 - fc00['FAR'], fc00['POD'], s=sz, c=c_cons, marker="D", edgecolor='black', zorder=6, alpha=0.4)
 
         # Connect the two forecaster points with a line
         ax.plot([1 - fc00['FAR'], 1 - fc05['FAR']], [fc00['POD'], fc05['POD']], c="darkgrey", linestyle="-", alpha=0.3, zorder=4)
-        ax_ins.plot([1 - fc00['FAR'], 1 - fc05['FAR']], [fc00['POD'], fc05['POD']], c="darkgrey", linestyle="-", alpha=0.3, zorder=4)
+        if higher_than_fog_thresh:
+            ax_ins.plot([1 - fc00['FAR'], 1 - fc05['FAR']], [fc00['POD'], fc05['POD']], c="darkgrey", linestyle="-", alpha=0.3, zorder=4)
 
         fcf00 = results['fc_first_00']
         fcf05 = results['fc_first_05']
@@ -777,14 +793,21 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
         c_first = fc_style_map['first_half']['color']
         c_second = fc_style_map['second_half']['color']
 
-        for axis, size_mod in [(ax, 150), (ax_ins, 90)]:
-            axis.scatter(1 - fcf00['FAR'], fcf00['POD'], marker='D', c=c_first, alpha=0.4, s=size_mod, edgecolor='black')
-            axis.scatter(1 - fcf05['FAR'], fcf05['POD'], marker='o', c=c_first, alpha=1.0, s=size_mod, edgecolor='black')
-            axis.scatter(1 - fcs00['FAR'], fcs00['POD'], marker='D', c=c_second, alpha=0.4, s=size_mod, edgecolor='black')
-            axis.scatter(1 - fcs05['FAR'], fcs05['POD'], marker='o', c=c_second, alpha=1.0, s=size_mod, edgecolor='black')
-            axis.plot([1 - fcf00['FAR'], 1 - fcf05['FAR']], [fcf00['POD'], fcf05['POD']], color=c_first, linestyle='-', alpha=0.3)
-            axis.plot([1 - fcs00['FAR'], 1 - fcs05['FAR']], [fcs00['POD'], fcs05['POD']], color=c_second, linestyle='-', alpha=0.3)
-        mark_inset(ax, ax_ins, loc1=2, loc2=4, fc="none", ec="black", lw=0.5, linestyle=":")
+        ax_ins = None if not higher_than_fog_thresh else ax_ins
+
+        ax.scatter(1 - fcf00['FAR'], fcf00['POD'], marker='D', c=c_first, alpha=0.4, s=sz, edgecolor='black')
+        ax.scatter(1 - fcf05['FAR'], fcf05['POD'], marker='o', c=c_first, alpha=1.0, s=sz, edgecolor='black')
+        ax.scatter(1 - fcs00['FAR'], fcs00['POD'], marker='D', c=c_second, alpha=0.4, s=sz, edgecolor='black')
+        ax.scatter(1 - fcs05['FAR'], fcs05['POD'], marker='o', c=c_second, alpha=1.0, s=sz, edgecolor='black')
+        ax.plot([1 - fcf00['FAR'], 1 - fcf05['FAR']], [fcf00['POD'], fcf05['POD']], color=c_first, linestyle='-', alpha=0.3)
+        ax.plot([1 - fcs00['FAR'], 1 - fcs05['FAR']], [fcs00['POD'], fcs05['POD']], color=c_second, linestyle='-', alpha=0.3)
+        if higher_than_fog_thresh:
+            ax_ins.scatter(1 - fcf00['FAR'], fcf00['POD'], marker='D', c=c_first, alpha=0.4, s=sz, edgecolor='black')
+            ax_ins.scatter(1 - fcf05['FAR'], fcf05['POD'], marker='o', c=c_first, alpha=1.0, s=sz, edgecolor='black')
+            ax_ins.scatter(1 - fcs00['FAR'], fcs00['POD'], marker='D', c=c_second, alpha=0.4, s=sz, edgecolor='black')
+            ax_ins.scatter(1 - fcs05['FAR'], fcs05['POD'], marker='o', c=c_second, alpha=1.0, s=sz, edgecolor='black')
+            ax_ins.plot([1 - fcf00['FAR'], 1 - fcf05['FAR']], [fcf00['POD'], fcf05['POD']], color=c_first, linestyle='-', alpha=0.3)
+            ax_ins.plot([1 - fcs00['FAR'], 1 - fcs05['FAR']], [fcs00['POD'], fcs05['POD']], color=c_second, linestyle='-', alpha=0.3)
         ax.set_title(p_name, fontsize=12, fontweight='bold' if i==0 else 'normal')
         
         # Titles and labels
