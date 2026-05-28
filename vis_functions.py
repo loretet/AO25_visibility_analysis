@@ -1154,11 +1154,11 @@ def plot_talagrand_histogram(ens_data, obs_data):
             density=True, edgecolor='black', alpha=0.7, color='skyblue')
     
     # The "ideal" line for a  calibrated ensemble
-    ax.axhline(1 / (n_members + 1), color='red', linestyle='--', lw=2, label='Perfectly Calibrated')
+    ax.axhline(1 / (n_members + 1), color='red', linestyle='--', lw=2, label='Uniform distribution')
     
-    ax.set_xlabel('Rank (Number of members < Observation)', fontsize=12)
+    ax.set_xlabel('Rank (No. of members with visibility < observed)', fontsize=12)
     ax.set_ylabel('Relative Frequency', fontsize=12)
-    ax.set_title(f'Talagrand Diagram (Rank Histogram)\nN = {n_members} members', fontweight='bold')
+    # ax.set_title(f'Talagrand Diagram (Rank Histogram)\nN = {n_members} members', fontweight='bold')
     ax.set_xticks(range(0, n_members + 1, max(1, n_members // 10)))
     ax.legend(frameon=True)
     ax.grid(axis='y', alpha=0.3)
