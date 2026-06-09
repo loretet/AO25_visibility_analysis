@@ -194,64 +194,6 @@ def calculate_scenarios(df):
     df['main_scenario'] = df['main_vis']
     return df
 
-def assign_event_probabilities(df, fog_thresh, higher_than_fog_thresh):
-    """
-    Maps TAF categorical trends to numerical event probabilities $P(\text{Vis} >< fog_{thresh})$.
-    Priority follows: Main (100%) > PROB40 (40%) > PROB30 (30%) > TEMPO (10%).
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        TAF DataFrame with scenario columns.
-    fog_thresh : float 
-        The visibility threshold (km) defining the "event" (e.g., fog), by default 1.0.
-    higher_than_fog_thresh : bool
-        If True, the "event" is defined as visibility > fog_thresh (opportunity). 
-        If False, the "event" is defined as visibility <= fog_thresh (hazard), by default False.
-
-    Returns
-    -------
-    df : pd.DataFrame
-        DataFrame with the 'p_event' column added.
-    """
-
-    # Initialize based on the Main Scenario
-    if higher_than_fog_thresh:
-        # Event is "Clear": Probability is 1.0 if main > threshold, else 0.0
-        df['p_event'] = (df['main_scenario'] > fog_thresh).astype(float)
-    else:
-        # Event is "Fog": Probability is 1.0 if main <= threshold, else 0.0
-        df['p_event'] = (df['main_scenario'] <= fog_thresh).astype(float)
-
-    # Process Trends (TEMPO, PROB30, PROB40)
-    for col, weight in [('tempo', 0.1), ('prob30', 0.3), ('prob40', 0.4)]:
-        mask_trend_exists = df[col].notna()
-        
-        if higher_than_fog_thresh:
-            mask_trend_is_clear = df[col] > fog_thresh
-            mask_trend_is_fog = df[col] <= fog_thresh
-            
-            # If main was Fog (prob 0) but trend is Clear, ADD probability
-            df.loc[mask_trend_exists & mask_trend_is_clear & (df['main_scenario'] <= fog_thresh), 'p_event'] += weight
-            # If main was Clear (prob 1) but trend is Fog, SUBTRACT probability
-            df.loc[mask_trend_exists & mask_trend_is_fog & (df['main_scenario'] > fog_thresh), 'p_event'] -= weight
-            
-        else:
-            mask_trend_is_fog = df[col] <= fog_thresh
-            mask_trend_is_clear = df[col] > fog_thresh
-            
-            # If main was Clear (prob 0) but trend is Fog, ADD probability
-            df.loc[mask_trend_exists & mask_trend_is_fog & (df['main_scenario'] > fog_thresh), 'p_event'] += weight
-            # If main was Fog (prob 1) but trend is Clear, SUBTRACT probability
-            df.loc[mask_trend_exists & mask_trend_is_clear & (df['main_scenario'] <= fog_thresh), 'p_event'] -= weight
-
-    # Ensure probabilities stay within [0, 1]
-    df['p_event'] = df['p_event'].clip(0.0, 1.0)
-    
-    # Invalidate where no TAF exists
-    df.loc[df['is_valid'] == False, 'p_event'] = np.nan
-    return df
-
 def get_metrics(forecast_bool, obs_bool):
     """
     Calculates standard binary verification metrics based on a $2 \times 2$ 
@@ -360,14 +302,12 @@ def plot_metrics_summary(metrics_df):
         ax2.bar_label(container, fmt='%.0f')
     return fig1, fig2
 
-def get_evaluation_library(df, model_dict, obs_series, fog_thresh, higher_than_fog_thresh):
+def get_evaluation_library(model_dict, obs_series, fog_thresh, higher_than_fog_thresh):
     """
     Creates a standardized library of boolean event series for all models.
 
     Parameters
     ----------
-    df : pd.DataFrame
-        TAF DataFrame containing the 'p_event' column (forecaster probabilities).
     model_dict : dict
         Dictionary mapping model names to visibility series { 'Name': pd.Series(vis_km) }.
     obs_series : pd.Series
@@ -404,75 +344,6 @@ def get_evaluation_library(df, model_dict, obs_series, fog_thresh, higher_than_f
             event_library[name] = (vis_series <= fog_thresh)
         
     return truth, event_library
-
-def plot_vis_summary(df, vis_obs, vis_mod1, vis_mod2, fog_thresh, start_date=None, end_date=None):
-    """
-    Plots a log-scale time series comparison of TAF scenarios, 
-    model output, and observations.
-
-    Parameters
-    ----------
-    df : pd.DataFrame
-        TAF DataFrame containing 'worst_vis', 'best_vis', 'main_scenario', and 'is_valid' columns.
-    vis_obs : pd.Series
-        Observed visibility time series (km).
-    vis_mod1 : pd.Series
-        First model visibility time series (km).
-    vis_mod2 : pd.Series
-        Second model visibility time series (km).
-    fog_thresh : float
-        Visibility threshold for fog definition (km).
-    start_date : str or pd.Timestamp 
-        Start date for the plot window. If None, uses full time range.
-    end_date : str or pd.Timestamp 
-        End date for the plot window. If None, uses full time range.
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        Figure object containing the log-scale visibility comparison plot.
-    ax : matplotlib.axes.Axes
-        Axes object for further customization.
-    """
-    obs_series = vis_obs.reindex(df.index, method='nearest')
-    mod_series1 = vis_mod1.reindex(df.index, method='nearest')
-    mod_series2 = vis_mod2.reindex(df.index, method='nearest')
-    
-    fig, ax = plt.subplots(figsize=(14, 7))
-    
-    if start_date and end_date:
-        plot_df = df.loc[start_date:end_date]
-        plot_obs = obs_series.loc[start_date:end_date]
-        plot_mod1 = mod_series1.loc[start_date:end_date]
-        plot_mod2 = mod_series2.loc[start_date:end_date]
-    else:
-        plot_df, plot_obs, plot_mod1, plot_mod2 = df, obs_series, mod_series1, mod_series2
-
-    ax.fill_between(plot_df.index, plot_df['worst_vis'], plot_df['best_vis'], 
-                    color='lightgray', alpha=0.5, label='TAF Uncertainty (TEMPO/PROB)')
-    ax.plot(plot_df.index, plot_df['main_scenario'], color='black', linewidth=1.2, 
-            label='TAF Main (Base/BECMG)', marker="o")
-    ax.plot(plot_df.index, plot_mod1, color='blue', linestyle='--', linewidth=1.5, 
-            label='IFS Oper. model')
-    # ax.plot(plot_df.index, plot_mod2, color='green', linestyle='--', linewidth=1.5, 
-    #         label='IFS lowLvlMean model')
-    ax.plot(plot_df.index, plot_obs, color='crimson', linewidth=2, label='Oden Observations')
-
-    ax.set_yscale('log')
-    ax.set_ylim(0.04, 15)
-    y_ticks = [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10]
-    ax.set_yticks(y_ticks)
-    ax.set_yticklabels([str(t) for t in y_ticks])
-    ax.axhline(y=fog_thresh, color='red', linestyle=':', alpha=0.5, label='Fog Threshold (0.8 km)')
-    ax.set_ylabel('Visibility [km] (Log Scale)')
-    ax.grid(True, which='both', linestyle='--', alpha=0.4)
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%d %b\n%H:%M'))
-    ax.fill_between(plot_df.index, 0, 1, where=~plot_df['is_valid'], 
-                    color='yellow', alpha=0.1, transform=ax.get_xaxis_transform(), label='No TAF')
-
-    ax.legend(loc='lower right', frameon=True, fontsize='small', ncol=2)
-    plt.tight_layout()
-    return fig, ax
 
 def calculate_stacked_probabilities(df):
     """
@@ -521,80 +392,6 @@ def calculate_stacked_probabilities(df):
                     if main_exists: prob_df.at[i, bin_names[main_bin_idx]] -= weight
                     
     return prob_df.clip(lower=0, upper=1)
-
-def plot_ens_meteogram(prob_df, model_dict, vis_obs, start_date, end_date, resample_freq='3H'):
-    """
-    Plots TAF probabilities as a stacked bar chart with model visibility rows below.
-
-    Parameters
-    ----------
-    prob_df : pd.DataFrame
-        DataFrame indexed by time with columns for each visibility bin.
-        Each cell contains a probability (0.0 to 1.0) for that bin.
-    model_dict : dict
-        Dictionary mapping model names to visibility series { 'ModelName': pd.Series(vis_km) }.
-    vis_obs : pd.Series
-        Observed visibility time series (km).
-    start_date : str or pd.Timestamp
-        Start date for the plot window.
-    end_date : str or pd.Timestamp
-        End date for the plot window.
-    resample_freq : str 
-        Resampling frequency for aggregating probabilities, by default '3H'.
-
-    Returns
-    -------
-    None
-        Displays matplotlib figure with meteogram
-    """
-    start_date, end_date = str(start_date), str(end_date)
-    p_sub = prob_df.loc[start_date:end_date].resample(resample_freq).mean()
-    obs_3h = vis_obs.reindex(p_sub.index, method='nearest')
-    
-    bins = [0, 0.15, 0.35, 0.6, 0.8, 1.5, 3.0, 5.0, 10.0]
-    colors = ['#191970', '#E31A1C', '#FF7F00', '#FFFF33', '#00FFFF', '#1F78B4', '#33A02C', '#B2DF8A']
-
-    fig, ax = plt.subplots(figsize=(13, 3 + (len([model for model in model_dict if "Ens" not in model]) * 1.5)))
-    fig.suptitle(f"TAF-Based Meteogram with (deterministic) model comparison\n({start_date} to {end_date})", fontweight='bold', fontsize=14)
-    
-    # 1. Plot Probability Stack
-    bottom = np.zeros(len(p_sub))
-    for i, col in enumerate(p_sub.columns):
-        ax.bar(p_sub.index, p_sub[col] * 100, bottom=bottom, width=0.08, 
-               color=colors[i], label=col, align='center', edgecolor='white', linewidth=0.1)
-        bottom += p_sub[col].values * 100
-
-    # 2. Plot Observation Row (Fixed at bottom)
-    for t in p_sub.index:
-        o_idx = np.digitize(obs_3h.loc[t], bins) - 1
-        ax.plot(t, -5, marker='s', markersize=10, color=colors[o_idx] if 0 <= o_idx < len(colors) else '#E0E0E0')
-
-    # 3. Plot Each Model Row
-    i = 0
-    for (name, vis_series) in (model_dict.items()):
-        if "Ens" not in name:
-            y_pos = -15 - (i * 10) # Each model gets a new row
-            right_x = p_sub.index.max() + (p_sub.index.max() - p_sub.index.min()) *0.01
-            mod_3h = vis_series.reindex(p_sub.index, method='nearest')
-            
-            for t in p_sub.index:
-                m_idx = np.digitize(mod_3h.loc[t], bins) - 1
-                ax.plot(t, y_pos, marker='s', markersize=10, 
-                        color=colors[m_idx] if 0 <= m_idx < len(colors) else '#E0E0E0')
-            
-            ax.text(right_x, y_pos, f'{name}  ', ha='left', va='center', fontweight='bold', fontsize=9)
-            i += 1
-
-    ax.text(right_x, -5, 'Observations  ', ha='left', va='center', fontweight='bold', fontsize=9, color='crimson')
-    ax.set_ylim(-15 - (len([model for model in model_dict if "Ens" not in model]) * 10), 105)
-    ax.set_ylabel('Forecaster Probability [%]')
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%a %d\n%H:%M'))
-    
-    # Clean up aesthetics
-    ax.legend(bbox_to_anchor=(1.01, 1), loc='upper left', title="Visibility Bins", frameon=False)
-    for day in pd.date_range(start_date, end_date, freq='D'):
-        ax.axvline(day, c='k', alpha=0.3, lw=0.5)
-    plt.tight_layout()
 
 def plot_multi_period_performance(results_list, period_names, model_style_map, fc_style_map, higher_than_fog_thresh):
     """
@@ -813,6 +610,321 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
     plt.tight_layout()
     return fig, axs
 
+def compute_brier_score(f, o):
+    """
+    Computes the Brier Score, a measure of forecast probability accuracy.
+    
+    The Brier Score is the mean squared difference between forecasted probabilities 
+    and observed binary outcomes. Lower values indicate better calibration.
+    
+    Parameters
+    ----------
+    f : pd.Series
+        Forecasted probabilities (0.0 to 1.0).
+    o : pd.Series
+        Observed binary events (0 or 1).
+    
+    Returns
+    -------
+    brier_score : float
+        Mean squared error between forecasts and observations.
+    """
+    # Ensure no NaNs from your masks interfere
+    valid_mask = f.notna() & o.notna()
+
+    return ((f[valid_mask] - o[valid_mask])**2).mean()
+
+def plot_reliability_diagram(prob_forecast, obs_binary, n_bins=10):
+    """
+    Plots a reliability diagram showing forecast calibration.
+    
+    Compares forecasted probabilities against observed frequencies binned into 
+    discrete probability intervals. Perfect calibration lies on the diagonal.
+
+    Parameters
+    ----------
+    prob_forecast : pd.Series
+        Forecasted probabilities (0.0 to 1.0).
+    obs_binary : pd.Series
+        Observed binary events (0 or 1).
+    n_bins : int 
+        Number of probability bins for calibration analysis, by default 10.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object containing the reliability diagram.
+    ax : matplotlib.axes.Axes
+        Axes object for further customization.
+    """
+    # prob_forecast: 0.0 to 1.0 (Ens_Prob)
+    # obs_binary: 0 or 1 (obs_event)
+    
+    # Remove NaNs
+    valid = prob_forecast.notna() & obs_binary.notna()
+    y_true = obs_binary[valid]
+    y_prob = prob_forecast[valid]
+    
+    # Calculate calibration
+    prob_true, prob_pred = calibration_curve(y_true, y_prob, n_bins=n_bins)
+    
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.plot([0, 1], [0, 1], "k:", label="Perfectly calibrated")
+    ax.plot(prob_pred, prob_true, "s-", label="Ensemble")
+    
+    ax.set_xlabel("Forecasted Probability")
+    ax.set_ylabel("Observed Frequency")
+    ax.set_title("Reliability Diagram")
+    ax.legend()
+    plt.grid(True)
+    return fig,ax
+
+def plot_talagrand_histogram(ens_data, obs_data):
+    """
+    Plots a Talagrand (rank) histogram to assess ensemble calibration.
+    
+    The Talagrand histogram shows how often observations fall within the range 
+    of ensemble members. A perfectly calibrated ensemble produces a flat histogram.
+    Bias toward low ranks indicates overconfidence; bias toward high ranks 
+    indicates the ensemble is too dispersed.
+
+    Parameters
+    ----------
+    ens_data : xarray.DataArray
+        Ensemble visibility data with dimensions (time, number).
+        Each 'number' represents an individual ensemble member.
+    obs_data : pd.Series
+        Observed visibility time series (km), indexed by datetime.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object containing the rank histogram.
+    ax : matplotlib.axes.Axes
+        Axes object for further customization.
+        
+    Notes
+    -----
+    The rank is defined as the number of ensemble members with values less than 
+    the observation. A uniform distribution across all ranks indicates good calibration.
+    """
+
+    # 1. Find the intersection of timestamps where both have valid data
+    ens_times = ens_data.time.to_index()
+    obs_times = obs_data.dropna().index
+    common_time = ens_times.intersection(obs_times)
+
+    if len(common_time) == 0:
+        print("Error: No overlapping timestamps found between ensemble and observations.")
+        return
+
+    # 2. Subset both to the common timestamps
+    ens_subset = ens_data.sel(time=common_time)
+    obs_subset = obs_data.loc[common_time].values  # Convert to numpy for broadcasting
+
+    # 3. Vectorized Rank Calculation
+    # We compare the observation (Time, 1) to the ensemble (Time, Number)
+    # The sum across the 'number' dimension gives the rank for each time step
+    ranks = (ens_subset < obs_subset[:, np.newaxis]).sum(dim='number').values
+
+    # 4. Plotting
+    n_members = len(ens_data.number)
+    fig, ax = plt.subplots(figsize=(8, 5))
+    
+    # We want bins for each possible rank (0 to n_members)
+    ax.hist(ranks, bins=np.arange(n_members + 2) - 0.5, 
+            density=True, edgecolor='black', alpha=0.7, color='skyblue')
+    
+    # The "ideal" line for a  calibrated ensemble
+    ax.axhline(1 / (n_members + 1), color='red', linestyle='--', lw=2, label='Uniform distribution')
+    
+    ax.set_xlabel('Rank (No. of members with visibility < observed)', fontsize=12)
+    ax.set_ylabel('Relative Frequency', fontsize=12)
+    # ax.set_title(f'Talagrand Diagram (Rank Histogram)\nN = {n_members} members', fontweight='bold')
+    ax.set_xticks(range(0, n_members + 1, max(1, n_members // 10)))
+    ax.legend(frameon=True)
+    ax.grid(axis='y', alpha=0.3)
+    plt.tight_layout()
+    
+    return fig, ax
+
+def calculate_ets(a, b, c, d):
+    """
+    Calculates the Equitable Threat Score (ETS).
+    
+    Parameters:
+    -----------
+    a : int/float
+        Hits
+    b : int/float
+        False Alarms
+    c : int/float
+        Misses
+    d : int/float
+        Correct Negatives
+    
+    Returns:
+    -----------
+    ets : float 
+        ETS value (range -1/3 to 1. 1 is perfect, 0 is no skill).
+    """
+    
+    n = a + b + c + d
+    
+    # 1. Calculate hits expected by chance (a_ref)
+    # (Total Forecast Yes * Total Observed Yes) / Total Events
+    a_ref = float((a + b) * (a + c)) / n
+    
+    # 2. Calculate ETS
+    numerator = a - a_ref
+    denominator = a + b + c - a_ref
+    
+    # Extreme case handling
+    if denominator == 0:
+        return np.nan
+        
+    ets = numerator / denominator
+    
+    return ets
+
+# ============================== #
+# LEGACY FUNCTIONS (not in main) #
+# ============================== #
+
+def assign_event_probabilities(df, fog_thresh, higher_than_fog_thresh):
+    """
+    Maps TAF categorical trends to numerical event probabilities $P(\text{Vis} >< fog_{thresh})$.
+    Priority follows: Main (100%) > PROB40 (40%) > PROB30 (30%) > TEMPO (10%).
+    Useful if a probability-based approach is used instead of strict categorical bins and best/worst/base
+    visibility scenarios.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        TAF DataFrame with scenario columns.
+    fog_thresh : float 
+        The visibility threshold (km) defining the "event" (e.g., fog), by default 1.0.
+    higher_than_fog_thresh : bool
+        If True, the "event" is defined as visibility > fog_thresh (opportunity). 
+        If False, the "event" is defined as visibility <= fog_thresh (hazard), by default False.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        DataFrame with the 'p_event' column added.
+    """
+
+    # Initialize based on the Main Scenario
+    if higher_than_fog_thresh:
+        # Event is "Clear": Probability is 1.0 if main > threshold, else 0.0
+        df['p_event'] = (df['main_scenario'] > fog_thresh).astype(float)
+    else:
+        # Event is "Fog": Probability is 1.0 if main <= threshold, else 0.0
+        df['p_event'] = (df['main_scenario'] <= fog_thresh).astype(float)
+
+    # Process Trends (TEMPO, PROB30, PROB40)
+    for col, weight in [('tempo', 0.1), ('prob30', 0.3), ('prob40', 0.4)]:
+        mask_trend_exists = df[col].notna()
+        
+        if higher_than_fog_thresh:
+            mask_trend_is_clear = df[col] > fog_thresh
+            mask_trend_is_fog = df[col] <= fog_thresh
+            
+            # If main was Fog (prob 0) but trend is Clear, ADD probability
+            df.loc[mask_trend_exists & mask_trend_is_clear & (df['main_scenario'] <= fog_thresh), 'p_event'] += weight
+            # If main was Clear (prob 1) but trend is Fog, SUBTRACT probability
+            df.loc[mask_trend_exists & mask_trend_is_fog & (df['main_scenario'] > fog_thresh), 'p_event'] -= weight
+            
+        else:
+            mask_trend_is_fog = df[col] <= fog_thresh
+            mask_trend_is_clear = df[col] > fog_thresh
+            
+            # If main was Clear (prob 0) but trend is Fog, ADD probability
+            df.loc[mask_trend_exists & mask_trend_is_fog & (df['main_scenario'] > fog_thresh), 'p_event'] += weight
+            # If main was Fog (prob 1) but trend is Clear, SUBTRACT probability
+            df.loc[mask_trend_exists & mask_trend_is_clear & (df['main_scenario'] <= fog_thresh), 'p_event'] -= weight
+
+    # Ensure probabilities stay within [0, 1]
+    df['p_event'] = df['p_event'].clip(0.0, 1.0)
+    
+    # Invalidate where no TAF exists
+    df.loc[df['is_valid'] == False, 'p_event'] = np.nan
+    return df
+
+def plot_ens_meteogram(prob_df, model_dict, vis_obs, start_date, end_date, resample_freq='3H'):
+    """
+    Plots TAF probabilities as a stacked bar chart with model visibility rows below.
+
+    Parameters
+    ----------
+    prob_df : pd.DataFrame
+        DataFrame indexed by time with columns for each visibility bin.
+        Each cell contains a probability (0.0 to 1.0) for that bin.
+    model_dict : dict
+        Dictionary mapping model names to visibility series { 'ModelName': pd.Series(vis_km) }.
+    vis_obs : pd.Series
+        Observed visibility time series (km).
+    start_date : str or pd.Timestamp
+        Start date for the plot window.
+    end_date : str or pd.Timestamp
+        End date for the plot window.
+    resample_freq : str 
+        Resampling frequency for aggregating probabilities, by default '3H'.
+
+    Returns
+    -------
+    None
+        Displays matplotlib figure with meteogram
+    """
+    start_date, end_date = str(start_date), str(end_date)
+    p_sub = prob_df.loc[start_date:end_date].resample(resample_freq).mean()
+    obs_3h = vis_obs.reindex(p_sub.index, method='nearest')
+    
+    bins = [0, 0.15, 0.35, 0.6, 0.8, 1.5, 3.0, 5.0, 10.0]
+    colors = ['#191970', '#E31A1C', '#FF7F00', '#FFFF33', '#00FFFF', '#1F78B4', '#33A02C', '#B2DF8A']
+
+    fig, ax = plt.subplots(figsize=(13, 3 + (len([model for model in model_dict if "Ens" not in model]) * 1.5)))
+    fig.suptitle(f"TAF-Based Meteogram with (deterministic) model comparison\n({start_date} to {end_date})", fontweight='bold', fontsize=14)
+    
+    # 1. Plot Probability Stack
+    bottom = np.zeros(len(p_sub))
+    for i, col in enumerate(p_sub.columns):
+        ax.bar(p_sub.index, p_sub[col] * 100, bottom=bottom, width=0.08, 
+               color=colors[i], label=col, align='center', edgecolor='white', linewidth=0.1)
+        bottom += p_sub[col].values * 100
+
+    # 2. Plot Observation Row (Fixed at bottom)
+    for t in p_sub.index:
+        o_idx = np.digitize(obs_3h.loc[t], bins) - 1
+        ax.plot(t, -5, marker='s', markersize=10, color=colors[o_idx] if 0 <= o_idx < len(colors) else '#E0E0E0')
+
+    # 3. Plot Each Model Row
+    i = 0
+    for (name, vis_series) in (model_dict.items()):
+        if "Ens" not in name:
+            y_pos = -15 - (i * 10) # Each model gets a new row
+            right_x = p_sub.index.max() + (p_sub.index.max() - p_sub.index.min()) *0.01
+            mod_3h = vis_series.reindex(p_sub.index, method='nearest')
+            
+            for t in p_sub.index:
+                m_idx = np.digitize(mod_3h.loc[t], bins) - 1
+                ax.plot(t, y_pos, marker='s', markersize=10, 
+                        color=colors[m_idx] if 0 <= m_idx < len(colors) else '#E0E0E0')
+            
+            ax.text(right_x, y_pos, f'{name}  ', ha='left', va='center', fontweight='bold', fontsize=9)
+            i += 1
+
+    ax.text(right_x, -5, 'Observations  ', ha='left', va='center', fontweight='bold', fontsize=9, color='crimson')
+    ax.set_ylim(-15 - (len([model for model in model_dict if "Ens" not in model]) * 10), 105)
+    ax.set_ylabel('Forecaster Probability [%]')
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%a %d\n%H:%M'))
+    
+    # Clean up aesthetics
+    ax.legend(bbox_to_anchor=(1.01, 1), loc='upper left', title="Visibility Bins", frameon=False)
+    for day in pd.date_range(start_date, end_date, freq='D'):
+        ax.axvline(day, c='k', alpha=0.3, lw=0.5)
+    plt.tight_layout()
+
 def plot_taf_window(df, fog_thresh, start_time, end_time):
     """
     Plots the Main, Best, and Worst TAF scenarios for a specific time window.
@@ -953,144 +1065,6 @@ def plot_ensemble_spaghetti(ens_xr, obs_series, start_t, end_t, fog_thresh):
     plt.tight_layout()
     return fig, ax
 
-def compute_brier_score(f, o):
-    """
-    Computes the Brier Score, a measure of forecast probability accuracy.
-    
-    The Brier Score is the mean squared difference between forecasted probabilities 
-    and observed binary outcomes. Lower values indicate better calibration.
-    
-    Parameters
-    ----------
-    f : pd.Series
-        Forecasted probabilities (0.0 to 1.0).
-    o : pd.Series
-        Observed binary events (0 or 1).
-    
-    Returns
-    -------
-    brier_score : float
-        Mean squared error between forecasts and observations.
-    """
-    # Ensure no NaNs from your masks interfere
-    valid_mask = f.notna() & o.notna()
-
-    return ((f[valid_mask] - o[valid_mask])**2).mean()
-
-def plot_reliability_diagram(prob_forecast, obs_binary, n_bins=10):
-    """
-    Plots a reliability diagram showing forecast calibration.
-    
-    Compares forecasted probabilities against observed frequencies binned into 
-    discrete probability intervals. Perfect calibration lies on the diagonal.
-
-    Parameters
-    ----------
-    prob_forecast : pd.Series
-        Forecasted probabilities (0.0 to 1.0).
-    obs_binary : pd.Series
-        Observed binary events (0 or 1).
-    n_bins : int 
-        Number of probability bins for calibration analysis, by default 10.
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        Figure object containing the reliability diagram.
-    ax : matplotlib.axes.Axes
-        Axes object for further customization.
-    """
-    # prob_forecast: 0.0 to 1.0 (Ens_Prob)
-    # obs_binary: 0 or 1 (obs_event)
-    
-    # Remove NaNs
-    valid = prob_forecast.notna() & obs_binary.notna()
-    y_true = obs_binary[valid]
-    y_prob = prob_forecast[valid]
-    
-    # Calculate calibration
-    prob_true, prob_pred = calibration_curve(y_true, y_prob, n_bins=n_bins)
-    
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.plot([0, 1], [0, 1], "k:", label="Perfectly calibrated")
-    ax.plot(prob_pred, prob_true, "s-", label="Ensemble")
-    
-    ax.set_xlabel("Forecasted Probability")
-    ax.set_ylabel("Observed Frequency")
-    ax.set_title("Reliability Diagram")
-    ax.legend()
-    plt.grid(True)
-    return fig,ax
-
-def plot_talagrand_histogram(ens_data, obs_data):
-    """
-    Plots a Talagrand (rank) histogram to assess ensemble calibration.
-    
-    The Talagrand histogram shows how often observations fall within the range 
-    of ensemble members. A perfectly calibrated ensemble produces a flat histogram.
-    Bias toward low ranks indicates overconfidence; bias toward high ranks 
-    indicates the ensemble is too dispersed.
-
-    Parameters
-    ----------
-    ens_data : xarray.DataArray
-        Ensemble visibility data with dimensions (time, number).
-        Each 'number' represents an individual ensemble member.
-    obs_data : pd.Series
-        Observed visibility time series (km), indexed by datetime.
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        Figure object containing the rank histogram.
-    ax : matplotlib.axes.Axes
-        Axes object for further customization.
-        
-    Notes
-    -----
-    The rank is defined as the number of ensemble members with values less than 
-    the observation. A uniform distribution across all ranks indicates good calibration.
-    """
-
-    # 1. Find the intersection of timestamps where both have valid data
-    ens_times = ens_data.time.to_index()
-    obs_times = obs_data.dropna().index
-    common_time = ens_times.intersection(obs_times)
-
-    if len(common_time) == 0:
-        print("Error: No overlapping timestamps found between ensemble and observations.")
-        return
-
-    # 2. Subset both to the common timestamps
-    ens_subset = ens_data.sel(time=common_time)
-    obs_subset = obs_data.loc[common_time].values  # Convert to numpy for broadcasting
-
-    # 3. Vectorized Rank Calculation
-    # We compare the observation (Time, 1) to the ensemble (Time, Number)
-    # The sum across the 'number' dimension gives the rank for each time step
-    ranks = (ens_subset < obs_subset[:, np.newaxis]).sum(dim='number').values
-
-    # 4. Plotting
-    n_members = len(ens_data.number)
-    fig, ax = plt.subplots(figsize=(8, 5))
-    
-    # We want bins for each possible rank (0 to n_members)
-    ax.hist(ranks, bins=np.arange(n_members + 2) - 0.5, 
-            density=True, edgecolor='black', alpha=0.7, color='skyblue')
-    
-    # The "ideal" line for a  calibrated ensemble
-    ax.axhline(1 / (n_members + 1), color='red', linestyle='--', lw=2, label='Uniform distribution')
-    
-    ax.set_xlabel('Rank (No. of members with visibility < observed)', fontsize=12)
-    ax.set_ylabel('Relative Frequency', fontsize=12)
-    # ax.set_title(f'Talagrand Diagram (Rank Histogram)\nN = {n_members} members', fontweight='bold')
-    ax.set_xticks(range(0, n_members + 1, max(1, n_members // 10)))
-    ax.legend(frameon=True)
-    ax.grid(axis='y', alpha=0.3)
-    plt.tight_layout()
-    
-    return fig, ax
-
 def plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, fog_thresh):
     """
     Generate probability density function (PDF) and cumulative distribution function (CDF) plots for visibility data.
@@ -1169,41 +1143,72 @@ def plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, fog_thresh)
     plt.tight_layout()
     return fig,axs
 
-def calculate_ets(a, b, c, d):
+def plot_vis_summary(df, vis_obs, vis_mod1, vis_mod2, fog_thresh, start_date=None, end_date=None):
     """
-    Calculates the Equitable Threat Score (ETS).
-    
-    Parameters:
-    -----------
-    a : int/float
-        Hits
-    b : int/float
-        False Alarms
-    c : int/float
-        Misses
-    d : int/float
-        Correct Negatives
-    
-    Returns:
-    -----------
-    ets : float 
-        ETS value (range -1/3 to 1. 1 is perfect, 0 is no skill).
+    Plots a log-scale time series comparison of TAF scenarios, 
+    model output, and observations.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        TAF DataFrame containing 'worst_vis', 'best_vis', 'main_scenario', and 'is_valid' columns.
+    vis_obs : pd.Series
+        Observed visibility time series (km).
+    vis_mod1 : pd.Series
+        First model visibility time series (km).
+    vis_mod2 : pd.Series
+        Second model visibility time series (km).
+    fog_thresh : float
+        Visibility threshold for fog definition (km).
+    start_date : str or pd.Timestamp 
+        Start date for the plot window. If None, uses full time range.
+    end_date : str or pd.Timestamp 
+        End date for the plot window. If None, uses full time range.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object containing the log-scale visibility comparison plot.
+    ax : matplotlib.axes.Axes
+        Axes object for further customization.
     """
+    obs_series = vis_obs.reindex(df.index, method='nearest')
+    mod_series1 = vis_mod1.reindex(df.index, method='nearest')
+    mod_series2 = vis_mod2.reindex(df.index, method='nearest')
     
-    n = a + b + c + d
+    fig, ax = plt.subplots(figsize=(14, 7))
     
-    # 1. Calculate hits expected by chance (a_ref)
-    # (Total Forecast Yes * Total Observed Yes) / Total Events
-    a_ref = float((a + b) * (a + c)) / n
-    
-    # 2. Calculate ETS
-    numerator = a - a_ref
-    denominator = a + b + c - a_ref
-    
-    # Extreme case handling
-    if denominator == 0:
-        return np.nan
-        
-    ets = numerator / denominator
-    
-    return ets
+    if start_date and end_date:
+        plot_df = df.loc[start_date:end_date]
+        plot_obs = obs_series.loc[start_date:end_date]
+        plot_mod1 = mod_series1.loc[start_date:end_date]
+        plot_mod2 = mod_series2.loc[start_date:end_date]
+    else:
+        plot_df, plot_obs, plot_mod1, plot_mod2 = df, obs_series, mod_series1, mod_series2
+
+    ax.fill_between(plot_df.index, plot_df['worst_vis'], plot_df['best_vis'], 
+                    color='lightgray', alpha=0.5, label='TAF Uncertainty (TEMPO/PROB)')
+    ax.plot(plot_df.index, plot_df['main_scenario'], color='black', linewidth=1.2, 
+            label='TAF Main (Base/BECMG)', marker="o")
+    ax.plot(plot_df.index, plot_mod1, color='blue', linestyle='--', linewidth=1.5, 
+            label='IFS Oper. model')
+    # ax.plot(plot_df.index, plot_mod2, color='green', linestyle='--', linewidth=1.5, 
+    #         label='IFS lowLvlMean model')
+    ax.plot(plot_df.index, plot_obs, color='crimson', linewidth=2, label='Oden Observations')
+
+    ax.set_yscale('log')
+    ax.set_ylim(0.04, 15)
+    y_ticks = [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10]
+    ax.set_yticks(y_ticks)
+    ax.set_yticklabels([str(t) for t in y_ticks])
+    ax.axhline(y=fog_thresh, color='red', linestyle=':', alpha=0.5, label='Fog Threshold (0.8 km)')
+    ax.set_ylabel('Visibility [km] (Log Scale)')
+    ax.grid(True, which='both', linestyle='--', alpha=0.4)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%d %b\n%H:%M'))
+    ax.fill_between(plot_df.index, 0, 1, where=~plot_df['is_valid'], 
+                    color='yellow', alpha=0.1, transform=ax.get_xaxis_transform(), label='No TAF')
+
+    ax.legend(loc='lower right', frameon=True, fontsize='small', ncol=2)
+    plt.tight_layout()
+    return fig, ax
+
