@@ -44,13 +44,6 @@ PERIODS = [
     (CONFIG['start_date'], CONFIG['end_date'], 'Entire Cruise')
 ]
 
-FC_STYLES = {
-    'base':         {'color': 'red',     'label': 'TAF (Base)'},
-    'conservative': {'color': 'red',     'label': 'TAF ("Any")'},
-    'first_half':   {'color': 'purple',  'label': 'TAF (First Half)'},
-    'second_half':  {'color': 'magenta', 'label': 'TAF (Second Half)'}
-}
-
 # The registry defines HOW data is loaded and evaluated. 
 # Types: 'det' (deterministic), 'pers' (persistence), 'ens_prob' (ensemble probability)
 MODEL_REGISTRY = {
@@ -71,8 +64,15 @@ MODEL_REGISTRY = {
     'Ens_P80':    {'type': 'ens_prob', 'thresh': 0.80, 'color': 'lightgreen'}
 }
 
+FC_STYLES = {
+    'base':         {'color': 'red',     'label': 'TAF (Base)'},
+    'conservative': {'color': 'red',     'label': 'TAF ("Any")'},
+    'first_half':   {'color': 'purple',  'label': 'TAF (First Half)'},
+    'second_half':  {'color': 'magenta', 'label': 'TAF (Second Half)'}
+}
 
-#%% 2. DATA PIPELINE (ETL)
+
+#%% 2. DATA PIPELINE 
 # ---------------------------------------------------------
 # Extract, transform, and load data uniformly to time_vec.
 # ---------------------------------------------------------
@@ -131,123 +131,100 @@ for name, meta in MODEL_REGISTRY.items():
 
 # Generate style mapping expected by plotting functions
 MODEL_STYLE = {name: meta['color'] for name, meta in MODEL_REGISTRY.items() if 'color' in meta}
+MODEL_STYLE.update({
+    'TAF_Base': 'red',
+    'TAF_Pessimistic': 'purple',
+    'TAF_Optimistic': 'magenta'
+})
 
 
 #%% 3. EVALUATION 
 # ---------------------------------------------------------
-# Compute binary verification metrics over defined periods and TAF halves.
+# Compute binary verification metrics over defined periods and TAF halves
+# for BOTH High-Visibility and Low-Visibility regimes.
 # ---------------------------------------------------------
 
-# 1. Convert all continuous data in model_data into boolean events at once.
-# ev_lib converts continuous visibility values into binary True/False events based on the fog threshold.
-truth, ev_lib = vf.get_evaluation_library(
-    taf_eval, model_data, taf_eval['obs_vis'], 
-    fog_thresh=CONFIG['fog_thresh'], 
-    higher_than_fog_thresh=CONFIG['higher_than_fog_thresh']
-)
+# Dictionaries to store multi-period results for both verification targets
+matrix_results = {
+    'high': [], # corresponds to higher_than_fog_thresh = True
+    'low':  []  # corresponds to higher_than_fog_thresh = False
+}
 
-# Extract all thresholded series (Numerical Models + TAF variants)
-models_lib = {k: v for k, v in ev_lib.items() if k != 'Forecaster'}
-# multi_period_results will contain scalar verification scores across different time windows.
-multi_period_results = []
-
-# Define validity masks
-mask_valid = taf_eval['is_valid'] == True
-mask_1st   = taf_eval['is_valid_first_half'] == True
-mask_2nd   = taf_eval['is_valid_second_half'] == True
-
-for start_t, end_t, p_name in PERIODS:
-    t_mask = (taf_eval.index >= start_t) & (taf_eval.index <= end_t)
+# Explicitly evaluate both threshold conditions sequentially
+for regime in ['high', 'low']:
+    is_high_target = (regime == 'high')
     
-    # Generate the evaluation masks for each split context
-    sub_periods = {
-        'Full':       t_mask if CONFIG['model_24h'] else (t_mask & mask_valid),
-        'First_Half':  t_mask & mask_1st,
-        'Second_Half': t_mask & mask_2nd
-    }
+    # 1. Dynamically update the baseline observation events for this target
+    taf_eval['obs_event'] = (taf_eval['obs_vis'] > CONFIG['fog_thresh']).astype(float) if is_high_target else \
+                           (taf_eval['obs_vis'] <= CONFIG['fog_thresh']).astype(float)
     
-    # Compute metrics for all elements in models_lib across each split
-    period_splits = {}
-    for split_name, current_mask in sub_periods.items():
-        window_truth = truth.loc[current_mask]
-        window_models = {k: v.loc[current_mask] for k, v in models_lib.items()}
+    # 2. Dynamic thresholding for numerical models and TAF interpretive choices
+    truth, ev_lib = vf.get_evaluation_library(
+        model_data, taf_eval['obs_vis'], 
+        fog_thresh=CONFIG['fog_thresh'], 
+        higher_than_fog_thresh=is_high_target
+    )
+    
+    # Separate models from base forecaster dictionary entry
+    models_lib = {k: v for k, v in ev_lib.items() if k != 'Forecaster'}
+    
+    # 3. Validity Masks Setup
+    mask_valid = taf_eval['is_valid'] == True
+    mask_1st   = taf_eval['is_valid_first_half'] == True
+    mask_2nd   = taf_eval['is_valid_second_half'] == True
+    
+    # 4. Compute split metrics across all time windows
+    for start_t, end_t, p_name in PERIODS:
+        t_mask = (taf_eval.index >= start_t) & (taf_eval.index <= end_t)
         
-        # vf.compute_all_metrics returns a DataFrame of scores for all models
-        period_splits[split_name] = vf.compute_all_metrics(window_truth, window_models)
+        sub_periods = {
+            'Full':        t_mask if CONFIG['model_24h'] else (t_mask & mask_valid),
+            'First_Half':  t_mask & mask_1st,
+            'Second_Half': t_mask & mask_2nd
+        }
         
-    multi_period_results.append({
-        'period': p_name,
-        'splits': period_splits
-    })
+        period_splits = {}
+        for split_name, current_mask in sub_periods.items():
+            window_truth = truth.loc[current_mask]
+            window_models = {k: v.loc[current_mask] for k, v in models_lib.items()}
+            period_splits[split_name] = vf.compute_all_metrics(window_truth, window_models)
+            
+        matrix_results[regime].append({
+            'period': p_name,
+            'splits': period_splits
+        })
 
-# --- Console Outputs (Example: Entire Cruise) ---
+# --- Consolidated Console Outputs (Example: Entire Cruise, High-Vis) ---
 eval_mask_fc = (taf_eval.index >= CONFIG['start_date']) & (taf_eval.index <= CONFIG['end_date']) & mask_valid
-bs_ens = vf.compute_brier_score(prob_fog[eval_mask_fc], taf_eval['obs_event'][eval_mask_fc])
+bs_ens = vf.compute_brier_score(prob_fog[eval_mask_fc], (taf_eval['obs_vis'] > CONFIG['fog_thresh'])[eval_mask_fc].astype(float))
+final_res_high = matrix_results['high'][-1]['splits']['Full']
 
-# Extract the 'Full' split for the final period (Entire Cruise)
-final_res = multi_period_results[-1]['splits']['Full']
-
-print("\n--- EVALUATION SUMMARY (ENTIRE CRUISE - FULL WINDOW) ---")
+print("\n--- EVALUATION SUMMARY (ENTIRE CRUISE - HIGH VISIBILITY WINDOW) ---")
 print(f"Ensemble Brier score: {bs_ens:.4f}\n")
-print(final_res.to_string(float_format="%.3f"))
-print(f"\n{'Model':<25} | {'ETS':<10} | Contingency [Hits, Misses, FA, CN]")
-print("-" * 65)
-for name, r in final_res.iterrows():
-    ets = vf.calculate_ets(r["Hits"], r["False alarms"], r["Misses"], r["Correct negatives"])
-    print(f"{name:<25} | {ets:<10.4f} | [{int(r['Hits'])}, {int(r['Misses'])}, {int(r['False alarms'])}, {int(r['Correct negatives'])}]")
-
-# Console Outputs
-eval_mask_fc = (taf_eval.index >= CONFIG['start_date']) & (taf_eval.index <= CONFIG['end_date']) & mask_valid
-bs_ens = vf.compute_brier_score(prob_fog[eval_mask_fc], taf_eval['obs_event'][eval_mask_fc])
-
-final_res = pd.concat([
-    multi_period_results[-1]['models'], 
-    pd.DataFrame([multi_period_results[-1]['fc_base']], index=['Forecaster_base']),
-    pd.DataFrame([multi_period_results[-1]['fc_any']], index=['Forecaster_any'])
-])
-
-print("\n--- EVALUATION SUMMARY (ENTIRE CRUISE) ---")
-print(f"Ensemble Brier score: {bs_ens:.4f}\n")
-print(final_res.to_string(float_format="%.3f"))
-print(f"\n{'Model':<25} | {'ETS':<10} | Contingency [Hits, Misses, FA, CN]")
-print("-" * 65)
-for name, r in final_res.iterrows():
-    ets = vf.calculate_ets(r["Hits"], r["False alarms"], r["Misses"], r["Correct negatives"])
-    print(f"{name:<25} | {ets:<10.4f} | [{int(r['Hits'])}, {int(r['Misses'])}, {int(r['False alarms'])}, {int(r['Correct negatives'])}]")
+print(final_res_high.to_string(float_format="%.3f"))
 
 
 #%% 4. VISUALIZATION
 # ---------------------------------------------------------
-# Dispatch processed structures to visualization functions.
+# Dispatch processed dual structures directly to the matrix plotting function.
 # ---------------------------------------------------------
 
-# 1. Performance Diagram
-vf.plot_multi_period_performance(
-    results_list=multi_period_results,
+# Generate the 4x2 Matrix Plot showing High Visibility (Col 0) and Low Visibility (Col 1)
+fig, axs = vf.plot_multi_period_performance_matrix(
+    results_high=matrix_results['high'],
+    results_low=matrix_results['low'],
     period_names=[d[2] for d in PERIODS],
-    model_style_map=MODEL_STYLE,
-    fc_style_map=FC_STYLES,
-    higher_than_fog_thresh=CONFIG['higher_than_fog_thresh']
+    model_style_map=MODEL_STYLE
 )
 
-# 2. Metrics Summary
-fig1, fig2 = vf.plot_metrics_summary(final_res)
-fig1.suptitle("Metrics summary"); fig2.suptitle("Metrics summary")
+# 2. Metrics Summary (example for entire period, considering both halves )
+fig1, fig2 = vf.plot_metrics_summary(matrix_results["high"][0]["splits"]["Full"])
+fig1.suptitle("Windows of opportunity"); fig2.suptitle("Windows of opportunity")
+fig1, fig2 = vf.plot_metrics_summary(matrix_results["low"][0]["splits"]["Full"])
+fig1.suptitle("Low visibility events"); fig2.suptitle("Low visibility events")
 
-# 3. Meteogram (Deterministic models only via dictionary comprehension)
-vf.plot_ens_meteogram(
-    prob_df=vf.calculate_stacked_probabilities(taf_eval), 
-    model_dict={k: v for k, v in model_data.items() if 'Ens' not in k and 'TAF' not in k}, 
-    vis_obs=taf_eval['obs_vis'], 
-    start_date='2025-08-20', 
-    end_date='2025-08-30'
-)
+# 3. Ensemble Diagnostics
+vf.plot_reliability_diagram(prob_fog, taf_eval['obs_event'], n_bins=20)
+vf.plot_talagrand_histogram(ens_aligned, taf_eval['obs_vis'])
 
-# 4. Ensemble Diagnostics
-if ens_aligned is not None:
-    vf.plot_reliability_diagram(prob_fog, taf_eval['obs_event'], n_bins=20)
-    vf.plot_talagrand_histogram(ens_aligned, taf_eval['obs_vis'])
-
-
-# #%%
-
+#%%

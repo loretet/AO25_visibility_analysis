@@ -1,6 +1,6 @@
 # Maintainer: L.L. Donati - lorenzo.luca.donati@misu.su.se
 # Scripts for "On the predictability of near-surface visibility over the Arctic Ocean"
-# by Luise Schulte, Lorenzo Luca Donati, Vania Lopez Garcia, Linus Magnusson, Ian M. Brooks
+# Authors: Luise Schulte, Lorenzo Luca Donati, Vania Lopez Garcia, Linus Magnusson, Ian M. Brooks
 
 #%% Imports
 import matplotlib.pyplot as plt
@@ -13,6 +13,9 @@ from sklearn.calibration import calibration_curve
 import seaborn as sns
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.lines import Line2D
+from matplotlib.ticker import MaxNLocator
+from matplotlib.textpath import TextPath
+from matplotlib.font_manager import FontProperties
 
 #%% Functions
 def TAF_parser(taf_string, debug=False):
@@ -393,223 +396,6 @@ def calculate_stacked_probabilities(df):
                     
     return prob_df.clip(lower=0, upper=1)
 
-def plot_multi_period_performance(results_list, period_names, model_style_map, fc_style_map, higher_than_fog_thresh):
-    """
-    Generates a 2x2 performance diagram comparing models and dual forecaster thresholds 
-    across multiple time periods, using both 5-min and 15-min observations.
-
-    Parameters
-    ----------
-    results_list : list of dict
-        List containing dictionaries of metrics for each period.
-    period_names : list of str
-        Titles for each subplot (e.g., ['Period 1', 'Period 2', ...]).
-    model_style_map : dict
-        Mapping of model names to their styling colors.
-    fc_style_map : dict
-        Mapping of forecaster versions to their styling markers and labels.
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        Figure object containing the performance diagram.
-    axs : matplotlib.axes.Axes
-        Axes object for further customization.
-    """
-    x = np.linspace(0.001, 1, 100)
-    y = np.linspace(0.001, 1, 100)
-    SR_grid, POD_grid = np.meshgrid(x, y)
-    CSI = 1 / (1/SR_grid + 1/POD_grid - 1)
-
-    fig, axs = plt.subplots(2, 2, figsize=(16, 14))
-    axs = axs.flatten()
-    contour_mappable = None
-
-    # Put entire period first and then three separate periods
-    reordered_results = [results_list[-1]] + results_list[:-1]
-    reordered_periods = [period_names[-1]] + period_names[:-1]
-
-    for i, (results, p_name) in enumerate(zip(reordered_results, reordered_periods)):
-        ax = axs[i]
-
-        # 0. Bold borders for 1st subplot
-        if i == 0:
-            for spine in ax.spines.values():
-                spine.set_linewidth(1.8)       # Make borders thick
-                spine.set_color('black')       # Ensure solid black color
-                spine.set_zorder(10)           # Bring borders to the front
-        
-        # 1. Background (CSI Contours and Bias Lines)
-        contour_mappable = ax.contourf(SR_grid, POD_grid, CSI, levels=np.arange(0, 1.1, 0.1), cmap='Greys', alpha=0.2)
-        for b in [0.5, 0.8, 1, 1.3, 1.5, 2, 4]:
-            end_x, end_y = (1, b) if b <= 1 else (1/b, 1)
-            ax.plot([0, end_x], [0, end_y], color='gray', linestyle='--', linewidth=0.8, alpha=0.5)
-            if b<=1:
-                ax.text(end_x, end_y, f' B={b}', fontsize=10, alpha=0.7)
-            else:
-                ax.text(end_x, end_y + 0.008, f' B={b}', fontsize=10, alpha=0.7, 
-                            ha='center', va='bottom', clip_on=False)
-
-        if higher_than_fog_thresh:
-            # Inset plotting
-            if i==0:
-                ax_ins = ax.inset_axes([0.08, 0.15, 0.50, 0.56]) 
-                ax_ins.set_xlim([0.75, 1.0])
-                ax_ins.set_ylim([0.8, 1.0])
-            elif i==1:
-                ax_ins = ax.inset_axes([0.08, 0.15, 0.70, 0.27])
-                ax_ins.set_xlim([0.2, 0.9])
-                ax_ins.set_ylim([0.8, 1.0])
-            elif i==2:
-                ax_ins = ax.inset_axes([0.08, 0.15, 0.45, 0.62])
-                ax_ins.set_xlim([0.85, 1.0])
-                ax_ins.set_ylim([0.7, 1.0])
-            elif i==3:
-                ax_ins = ax.inset_axes([0.08, 0.15, 0.35, 0.46])
-                ax_ins.set_xlim([0.8, 1.0])
-                ax_ins.set_ylim([0.9, 1.0])
-            ax_ins.set_aspect('auto')
-            ax_ins.set_facecolor('white')
-            ax_ins.set_facecolor('white')  
-            # Re-plot background CSI 
-            ax_ins.contourf(SR_grid, POD_grid, CSI, levels=np.arange(0, 1.1, 0.1), cmap='Greys', alpha=0.15)
-            for b in [0.5, 0.8, 1, 1.3, 1.5, 2, 4]:
-                end_x, end_y = (1, b) if b <= 1 else (1/b, 1)
-                ax_ins.plot([0, end_x], [0, end_y], color='gray', linestyle='--', linewidth=0.6, alpha=0.3)
-            ax_ins.tick_params(axis='both', which='major', labelsize=6)
-
-        # 2. Plot Numerical Models
-        df_mod = results['models']
-        for model_name, color in model_style_map.items():
-            if model_name in df_mod.index:
-                row = df_mod.loc[model_name]
-                mrkr = "*" if model_name =="Persist_10min" else "o"
-                sz = 180 if model_name =="Persist_10min" else 120
-                ax.scatter(1 - row['FAR'], row['POD'], s=sz, c=color, edgecolor='black', zorder=5, marker=mrkr)
-                if higher_than_fog_thresh:
-                    ax_ins.scatter(1 - row['FAR'], row['POD'], s=sz, c=color, edgecolor='black', zorder=5, marker=mrkr)
-        # 3. Plot Forecaster (0.5 Base Threshold)
-        sz = 120
-        fc05 = results['fc_05']
-        c_base = fc_style_map['base']['color']
-        ax.scatter(1 - fc05['FAR'], fc05['POD'], s=sz, c=c_base, marker="o", edgecolor='black', zorder=6)
-        if higher_than_fog_thresh:
-            ax_ins.scatter(1 - fc05['FAR'], fc05['POD'], s=sz, c=c_base, marker="o", edgecolor='black', zorder=6)
-
-        # 4. Plot Forecaster (0.0 Conservative Threshold)
-        fc00 = results['fc_00']
-        c_cons = fc_style_map['conservative']['color']
-        ax.scatter(1 - fc00['FAR'], fc00['POD'], s=sz, c=c_cons, marker="D", edgecolor='black', zorder=6, alpha=0.4)
-        if higher_than_fog_thresh:
-            ax_ins.scatter(1 - fc00['FAR'], fc00['POD'], s=sz, c=c_cons, marker="D", edgecolor='black', zorder=6, alpha=0.4)
-
-        # Connect the two forecaster points with a line
-        ax.plot([1 - fc00['FAR'], 1 - fc05['FAR']], [fc00['POD'], fc05['POD']], c="darkgrey", linestyle="-", alpha=0.3, zorder=4)
-        if higher_than_fog_thresh:
-            ax_ins.plot([1 - fc00['FAR'], 1 - fc05['FAR']], [fc00['POD'], fc05['POD']], c="darkgrey", linestyle="-", alpha=0.3, zorder=4)
-
-        fcf00 = results['fc_first_00']
-        fcf05 = results['fc_first_05']
-        fcs00 = results['fc_second_00']
-        fcs05 = results['fc_second_05']
-        c_first = fc_style_map['first_half']['color']
-        c_second = fc_style_map['second_half']['color']
-
-        ax_ins = None if not higher_than_fog_thresh else ax_ins
-
-        ax.scatter(1 - fcf00['FAR'], fcf00['POD'], marker='D', c=c_first, alpha=0.4, s=sz, edgecolor='black')
-        ax.scatter(1 - fcf05['FAR'], fcf05['POD'], marker='o', c=c_first, alpha=1.0, s=sz, edgecolor='black')
-        ax.scatter(1 - fcs00['FAR'], fcs00['POD'], marker='D', c=c_second, alpha=0.4, s=sz, edgecolor='black')
-        ax.scatter(1 - fcs05['FAR'], fcs05['POD'], marker='o', c=c_second, alpha=1.0, s=sz, edgecolor='black')
-        ax.plot([1 - fcf00['FAR'], 1 - fcf05['FAR']], [fcf00['POD'], fcf05['POD']], color=c_first, linestyle='-', alpha=0.3)
-        ax.plot([1 - fcs00['FAR'], 1 - fcs05['FAR']], [fcs00['POD'], fcs05['POD']], color=c_second, linestyle='-', alpha=0.3)
-        if higher_than_fog_thresh:
-            ax_ins.scatter(1 - fcf00['FAR'], fcf00['POD'], marker='D', c=c_first, alpha=0.4, s=sz, edgecolor='black')
-            ax_ins.scatter(1 - fcf05['FAR'], fcf05['POD'], marker='o', c=c_first, alpha=1.0, s=sz, edgecolor='black')
-            ax_ins.scatter(1 - fcs00['FAR'], fcs00['POD'], marker='D', c=c_second, alpha=0.4, s=sz, edgecolor='black')
-            ax_ins.scatter(1 - fcs05['FAR'], fcs05['POD'], marker='o', c=c_second, alpha=1.0, s=sz, edgecolor='black')
-            ax_ins.plot([1 - fcf00['FAR'], 1 - fcf05['FAR']], [fcf00['POD'], fcf05['POD']], color=c_first, linestyle='-', alpha=0.3)
-            ax_ins.plot([1 - fcs00['FAR'], 1 - fcs05['FAR']], [fcs00['POD'], fcs05['POD']], color=c_second, linestyle='-', alpha=0.3)
-        ax.set_title(p_name, fontsize=12, fontweight='bold' if i==0 else 'normal')
-        
-        # Titles and labels
-        ax.set_title(p_name, pad=20, fontweight='bold')
-        ax.text(0.05, 0.95, f"{chr(97+i)})", transform=ax.transAxes, fontsize=14, fontweight='bold', va='top', bbox=dict(boxstyle="square,pad=0.3", facecolor="white", alpha=1))
-        ax.set_xlim(0, 1); ax.set_ylim(0, 1)
-        axs[2].set_xlabel('Success Ratio (1 - FAR)', fontsize=14)
-        axs[3].set_xlabel('Success Ratio (1 - FAR)', fontsize=14)
-        axs[0].set_ylabel('Probability of Detection (POD)', fontsize=14)
-        axs[2].set_ylabel('Probability of Detection (POD)', fontsize=14)
-        ax.grid(True, linestyle=':', alpha=0.4)
-
-    # 5. Global Legend Construction
-    handles = [
-        Line2D([0], [0], color="none", markerfacecolor=c, label=l, marker='o', markeredgecolor='black', markersize=10) 
-        for l, c in list(model_style_map.items())[:-1]
-    ]
-    # Base/Conservative forecasters
-    handles.append(Line2D([0], [0], color='none', marker='o', markerfacecolor=fc_style_map['base']['color'], markeredgecolor='black', label=fc_style_map['base']['label'], markersize=10))
-    handles.append(Line2D([0], [0], color='none', marker='D', markerfacecolor=fc_style_map['conservative']['color'], markeredgecolor='black', label=fc_style_map['conservative']['label'], markersize=10, alpha=0.4))
-    
-    # First/second halves for forecaster
-    handles.extend([
-        Line2D(
-            [0], [0],
-            color='none',
-            marker='o',
-            markerfacecolor=fc_style_map['first_half']['color'],
-            markeredgecolor='black',
-            label='TAF (First Half)',
-            markersize=10
-        ),
-        Line2D(
-            [0], [0],
-            color='none',
-            marker='D',
-            markerfacecolor=fc_style_map['first_half']['color'],
-            markeredgecolor='black',
-            label='TAF ("Any", first half)',
-            markersize=10,
-            alpha = 0.4
-        ),
-        Line2D(
-            [0], [0],
-            color='none',
-            marker='o',
-            markerfacecolor=fc_style_map['second_half']['color'],
-            markeredgecolor='black',
-            label='TAF (Second Half)',
-            markersize=10
-        ),
-        Line2D(
-            [0], [0],
-            color='none',
-            marker='D',
-            markerfacecolor=fc_style_map['second_half']['color'],
-            markeredgecolor='black',
-            label='TAF ("Any", second half)',
-            markersize=10,
-            alpha = 0.4
-        ),
-    ])
-
-    # Plot persistence forecast in legend
-    last_handle = [
-        Line2D([0], [0], color="none", markerfacecolor=c, label=l, marker='*', markeredgecolor='black', markersize=10) 
-        for l, c in [list(model_style_map.items())[-1]]
-    ]
-    
-    axs[0].legend(handles=(handles + last_handle), frameon=True, loc='lower right', prop={'size': 7}, ncols=3)
-
-    # 6. Colorbars
-    for idx in [1, 3]:
-        divider = make_axes_locatable(axs[idx])
-        cax = divider.append_axes("right", size="5%", pad=0.6)
-        fig.colorbar(contour_mappable, cax=cax).set_label('CSI', fontsize=10)
-
-    plt.tight_layout()
-    return fig, axs
-
 def compute_brier_score(f, o):
     """
     Computes the Brier Score, a measure of forecast probability accuracy.
@@ -723,15 +509,15 @@ def plot_talagrand_histogram(ens_data, obs_data):
     obs_subset = obs_data.loc[common_time].values  # Convert to numpy for broadcasting
 
     # 3. Vectorized Rank Calculation
-    # We compare the observation (Time, 1) to the ensemble (Time, Number)
-    # The sum across the 'number' dimension gives the rank for each time step
+    # Compare the observation (time, 1) to the ensemble (time, number)
+    # Sum across the 'number' dimension yields the rank for each time step
     ranks = (ens_subset < obs_subset[:, np.newaxis]).sum(dim='number').values
 
     # 4. Plotting
     n_members = len(ens_data.number)
     fig, ax = plt.subplots(figsize=(8, 5))
     
-    # We want bins for each possible rank (0 to n_members)
+    # Bins for each possible rank (0 to n_members)
     ax.hist(ranks, bins=np.arange(n_members + 2) - 0.5, 
             density=True, edgecolor='black', alpha=0.7, color='skyblue')
     
@@ -786,6 +572,245 @@ def calculate_ets(a, b, c, d):
     ets = numerator / denominator
     
     return ets
+
+
+def plot_multi_period_performance_matrix(results_high, results_low, period_names, model_style_map):
+    """
+    Generates a 4x2 matrix performance diagram matching an A4 page layout.
+    
+    Left Column (Col 0): Higher-than-fog threshold evaluation with detailed inset zooms.
+    Right Column (Col 1): Low visibility threshold evaluation across full scale.
+    
+    Rows correspond to time windows: Row 0 is Entire Period; Rows 1-3 are sub-periods.
+    """
+
+    # Create markers for different data halves
+    my_marker_1 = get_text_marker("A")
+    my_marker_2 = get_text_marker("B")
+
+    # 1. Setup Data Meshgrids for Background CSI
+    x = np.linspace(0.001, 1, 100)
+    y = np.linspace(0.001, 1, 100)
+    SR_grid, POD_grid = np.meshgrid(x, y)
+    CSI = 1 / (1/SR_grid + 1/POD_grid - 1)
+    grid_data = (SR_grid, POD_grid, CSI)
+
+    fig, axs = plt.subplots(4, 3, figsize=(17, 25), 
+                            gridspec_kw={'width_ratios': [1, 1, 0.05]})
+    contour_mappable = None
+    plot_axs = axs[:, :2]   # 4x2 array for your performance plots
+    cbar_axs = axs[:, 2]
+
+    # Hardcoded Inset Axis Windows Config for Column 0 (Higher than Threshold)
+    inset_configs_high = {
+        0: {'bounds': [0.08, 0.18, 0.50, 0.56], 'xlim': [0.79, 1.0], 'ylim': [0.837, 1.01]},
+        1: {'bounds': [0.08, 0.15, 0.70, 0.30], 'xlim': [0.38, 0.64], 'ylim': [0.84, 1.02]},
+        2: {'bounds': [0.08, 0.15, 0.45, 0.62], 'xlim': [0.85, 1.01], 'ylim': [0.7, 1.02]},
+        3: {'bounds': [0.08, 0.15, 0.35, 0.46], 'xlim': [0.85, 1.01], 'ylim': [0.93, 1.005]}
+    }
+
+    inset_configs_low = {
+        0: {'bounds': None,                     'xlim': [0,0],         'ylim': [0,0]},
+        1: {'bounds': [0.08, 0.15, 0.30, 0.70], 'xlim': [0.80,  1.02],  'ylim': [0.23, 0.75]},
+        2: {'bounds': [0.55, 0.15, 0.37, 0.64], 'xlim': [-0.015, 0.25],   'ylim': [-0.015, 0.5]},
+        3: {'bounds': None,                     'xlim': [0,0],         'ylim': [0,0]}
+    }
+
+    # FIX 1 & 2: Safe reordering of both data streams and period strings
+    reordered_high = [results_high[-1]] + results_high[:-1]
+    reordered_low  = [results_low[-1]] + results_low[:-1]
+    reordered_periods = [period_names[-1]] + period_names[:-1]
+
+    data_sources = [reordered_high, reordered_low]
+    panel_labels = [['a', 'b'], ['c', 'd'], ['e', 'f'], ['g', 'h']]
+
+    for i, p_name in enumerate(reordered_periods):
+        for j in range(2):
+            ax = plot_axs[i, j]
+            is_high_thresh_col = (j == 0)
+            
+            # Extract metrics using the unified, safely reordered streams
+            results = data_sources[j][i] 
+            splits = results['splits']
+
+            # Highlight Row 0 (Entire Cruise Summary) with prominent thick borders across both columns
+            if i == 0:
+                for spine in ax.spines.values():
+                    spine.set_linewidth(1.8)       
+                    spine.set_color('black')       
+                    spine.set_zorder(10)           
+            
+            # FIX 3: Point to correct internal background-drawing helper function name
+            contour_mappable = draw_perf_background(ax, grid_data, line_w=0.8, line_alpha=0.5, contour_alpha=0.2, show_text=True)
+
+            # Generate and configure Inset Axis ONLY for the left column
+            target_axs = [ax]
+            cfg = inset_configs_high[i] if is_high_thresh_col else inset_configs_low[i]
+            if cfg["bounds"] is not None:
+                ax_ins = ax.inset_axes(cfg['bounds'])
+                ax_ins.set_xlim(cfg['xlim'])
+                ax_ins.set_ylim(cfg['ylim'])
+                ax_ins.set_aspect('auto')
+                if cfg['bounds'][2]>cfg['bounds'][2]*2:
+                    ax_ins.xaxis.set_major_locator(MaxNLocator(nbins=4))
+                    ax_ins.yaxis.set_major_locator(MaxNLocator(nbins=3))
+                elif cfg['bounds'][2] < cfg['bounds'][2]/2:
+                    ax_ins.xaxis.set_major_locator(MaxNLocator(nbins=4))
+                    ax_ins.yaxis.set_major_locator(MaxNLocator(nbins=3))
+                else: 
+                    ax_ins.xaxis.set_major_locator(MaxNLocator(nbins=4))
+                    ax_ins.yaxis.set_major_locator(MaxNLocator(nbins=4))
+                ax_ins.tick_params(axis='both', which='major', labelsize=8)
+                # ax_ins.axvspan(cfg['xlim'][0], cfg['xlim'][1], color='yellow', alpha=0.08, zorder=1)
+                draw_hatching(ax_ins)
+                draw_perf_background(ax_ins, grid_data, line_w=0.6, line_alpha=0.3, contour_alpha=0.15, show_text=False)
+                target_axs.append(ax_ins)
+                ax.indicate_inset_zoom(ax_ins, edgecolor="grey",alpha=1,lw=0.7)
+
+            # --- UNIFORM TRAJECTORY PLOTTING BLOCK ---
+            if all(k in splits for k in ['Full', 'First_Half', 'Second_Half']):
+                df_full = splits['Full']
+                df_1st  = splits['First_Half']
+                df_2nd  = splits['Second_Half']
+
+                for model_name, color in model_style_map.items():
+                    if model_name in df_full.index and model_name in df_1st.index and model_name in df_2nd.index:
+                        row_full = df_full.loc[model_name]
+                        row_1st  = df_1st.loc[model_name]
+                        row_2nd  = df_2nd.loc[model_name]
+
+                        # Success Ratio (1 - FAR) vs POD coordinates
+                        pt_full = (1 - row_full['FAR'], row_full['POD'])
+                        pt_1st  = (1 - row_1st['FAR'],  row_1st['POD'])
+                        pt_2nd  = (1 - row_2nd['FAR'],  row_2nd['POD'])
+
+                        # Marker configuration rules based on scenario types
+                        mrkr = "*" if model_name == "Persist_10min" else "o"
+                        sz = 180 if model_name == "Persist_10min" else 120
+
+                        for t_ax in target_axs:
+                            # First Half Window marker
+                            t_ax.scatter(*pt_1st, s=sz*2.2, c=color, marker=my_marker_1, edgecolor=color, zorder=4, alpha=1)
+                            # Second Half Window marker with transparency fade
+                            t_ax.scatter(*pt_2nd, s=sz*2.2, c=color, marker=my_marker_2, edgecolor=color, zorder=4, alpha=1)
+                            # Central Full Window reference point
+                            t_ax.scatter(*pt_full, s=sz, c=color, marker=mrkr, edgecolor='black', zorder=5)
+                            # Lead-time evolution connection track
+                            t_ax.plot([pt_1st[0], pt_full[0], pt_2nd[0]], [pt_1st[1], pt_full[1], pt_2nd[1]], 
+                                      color=color, linestyle='-', linewidth=1.2, alpha=0.4, zorder=3)
+
+            # Distinct Subplot Titles indicating column metrics
+            col_suffix = " (Windows of opportunity)" if is_high_thresh_col else " (Low visibility events)"
+            ax.set_title(f"{p_name}{col_suffix}", pad=20, fontweight='bold' if i == 0 else 'normal')
+            
+            # Panel indexing indicators
+            p_letter = panel_labels[i][j]
+            ax.text(0.05, 0.95, f"{p_letter})", transform=ax.transAxes, fontsize=14, fontweight='bold', 
+                    va='top', bbox=dict(boxstyle="square,pad=0.3", facecolor="white", alpha=1))
+            
+            ax.set_xlim(0, 1); ax.set_ylim(0, 1)
+            ax.grid(True, linestyle=':', alpha=0.4)
+
+    # 2. Clean Matrix Edge Axis Labels (Prevents visual clipping and inner crowding)
+    for j in range(2):
+        axs[3, j].set_xlabel('Success Ratio (1 - FAR)', fontsize=13)
+    for i in range(4):
+        axs[i, 0].set_ylabel('Probability of Detection (POD)', fontsize=13)
+
+    # 3. Consolidated Global Legend on Top Left Panel
+    legend_elements = []
+    for l, c in model_style_map.items():
+        mrkr = '*' if l == "Persist_10min" else 'o'
+        legend_elements.append(Line2D([0], [0], color="none", markerfacecolor=c, label=l, marker=mrkr, markeredgecolor='black', markersize=10))
+    
+    legend_elements.extend([
+        Line2D([0], [0], color='none', marker='o', markerfacecolor='white', markeredgecolor='black', label='Full Window Metric', markersize=10),
+        Line2D([0], [0], color='none', marker=my_marker_1, markerfacecolor='white', markeredgecolor='black', label='First Half Window (A)', markersize=11, alpha=1),
+        Line2D([0], [0], color='none', marker=my_marker_2, markerfacecolor='white', markeredgecolor='black', label='Second Half Window (B)', markersize=11, alpha=1),
+    ])
+    axs[0,0].legend(handles=legend_elements, frameon=True, loc='lower right', prop={'size': 8}, ncols=4)
+
+    # 4. Vertical Colorbars aligned cleanly in the 3rd column
+    for i in range(4):
+        # Directly put the colorbar in the dedicated ax slot
+        fig.colorbar(contour_mappable, cax=cbar_axs[i]).set_label('CSI', fontsize=10)
+        
+    # Set labels on the correct outer edge axes
+    for j in range(2):
+        plot_axs[3, j].set_xlabel('Success Ratio (1 - FAR)', fontsize=13)
+    for i in range(4):
+        plot_axs[i, 0].set_ylabel('Probability of Detection (POD)', fontsize=13)
+    
+    plt.tight_layout()
+    return fig, plot_axs
+
+# ================ #
+# HELPER FUNCTIONS #
+# ================ #
+
+def draw_perf_background(ax, grid_data, line_w, line_alpha, contour_alpha, show_text=False):
+    """Draws the CSI contours and dashed Bias lines on a given axis with an opaque background."""
+    SR_grid, POD_grid, CSI = grid_data
+    
+    white_mask = plt.Rectangle((0, 0), 1, 1, transform=ax.transData, 
+                               color='white', clip_on=True,zorder=2)
+    ax.add_patch(white_mask)
+    
+    # 1. Contour Fill
+    # Ensure zorder is higher than the mask (e.g., 6)
+    mappable = ax.contourf(SR_grid, POD_grid, CSI, 
+                           levels=np.arange(0, 1.1, 0.1), 
+                           cmap='Greys', 
+                           alpha=contour_alpha,zorder=3)
+    
+    # 2. Bias Lines
+    # Ensure lines are on top of the contour (e.g., zorder=7)
+    for b in [0.5, 0.75, 1, 1.25, 1.5, 2, 4]:
+        end_x, end_y = (1, b) if b <= 1 else (1/b, 1)
+        ax.plot([0, end_x], [0, end_y], color='gray', linestyle='--', 
+                linewidth=line_w, alpha=line_alpha)
+        
+        if show_text:
+            if b <= 1:
+                # Labels on the right boundary (X=1)
+                # Use x=1.02 to push it slightly outside the right spine
+                ax.text(1.01, end_y, f' B={b}', 
+                        transform=ax.transData,
+                        fontsize=10, alpha=0.7, 
+                        ha='left', va='center', 
+                        clip_on=False, zorder=8)
+            else:
+                # Labels on the top boundary (Y=1)
+                # Use y=1.02 to push it slightly above the top spine
+                ax.text(end_x, 1.01, f' B={b}', 
+                        transform=ax.transData,
+                        fontsize=10, alpha=0.7, 
+                        ha='center', va='bottom', 
+                        clip_on=False, zorder=8)
+                    
+    return mappable
+
+def draw_hatching(ax):
+    """
+    Creates a hatched buffer region beyond the [0, 1] domain.
+    """
+    # Create the hatched regions for the four sides beyond the [0, 1] box
+    hatch_style = '///' 
+    color = 'lightgray'
+    
+    # Left buffer
+    ax.axvspan(-0.1, 0, facecolor='none', hatch=hatch_style, edgecolor=color, zorder=1)
+    # Right buffer
+    ax.axvspan(1, 1.1, facecolor='none', hatch=hatch_style, edgecolor=color, zorder=1)
+    # Bottom buffer
+    ax.axhspan(-0.1, 0, facecolor='none', hatch=hatch_style, edgecolor=color, zorder=1)
+    # Top buffer
+    ax.axhspan(1, 1.1, facecolor='none', hatch=hatch_style, edgecolor=color, zorder=1)
+
+def get_text_marker(text, size=20):
+    # Create a TextPath object
+    fp = FontProperties(family='sans-serif',style="normal")
+    return TextPath((0, 0), text, size=size, prop=fp)
 
 # ============================== #
 # LEGACY FUNCTIONS (not in main) #
@@ -1212,3 +1237,161 @@ def plot_vis_summary(df, vis_obs, vis_mod1, vis_mod2, fog_thresh, start_date=Non
     plt.tight_layout()
     return fig, ax
 
+
+def plot_multi_period_performance(results_list, period_names, model_style_map, higher_than_fog_thresh):
+    """
+    Generates a 2x2 performance diagram comparing models and dual forecaster thresholds 
+    across multiple time periods, using both 5-min and 15-min observations.
+
+    Parameters
+    ----------
+    results_list : list of dict
+        List containing dictionaries of metrics for each period.
+    period_names : list of str
+        Titles for each subplot (e.g., ['Period 1', 'Period 2', ...]).
+    model_style_map : dict
+        Mapping of model names to their styling colors.
+    higher_than_fog_thresh : bool
+        Flag indicating whether to evaluate higher-than-fog threshold.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object containing the performance diagram.
+    axs : matplotlib.axes.Axes
+        Axes object for further customization.
+    """
+
+    # Create markers for different data halves
+    my_marker_1 = get_text_marker("1")
+    my_marker_2 = get_text_marker("2")
+
+    # 1. Setup Data Meshgrids for Background CSI
+    x = np.linspace(0.001, 1, 100)
+    y = np.linspace(0.001, 1, 100)
+    SR_grid, POD_grid = np.meshgrid(x, y)
+    CSI = 1 / (1/SR_grid + 1/POD_grid - 1)
+    grid_data = (SR_grid, POD_grid, CSI)
+
+    fig, axs = plt.subplots(2, 2, figsize=(16, 14))
+    axs = axs.flatten()
+    contour_mappable = None
+
+    # Hardcoded Inset Axis Windows Config
+    inset_configs = {
+        0: {'bounds': [0.08, 0.15, 0.50, 0.56], 'xlim': [0.75, 1.0], 'ylim': [0.8, 1.0]},
+        1: {'bounds': [0.08, 0.15, 0.70, 0.27], 'xlim': [0.2,  0.9], 'ylim': [0.8, 1.0]},
+        2: {'bounds': [0.08, 0.15, 0.45, 0.62], 'xlim': [0.85, 1.0], 'ylim': [0.7, 1.0]},
+        3: {'bounds': [0.08, 0.15, 0.35, 0.46], 'xlim': [0.8,  1.0], 'ylim': [0.9, 1.0]}
+    }
+
+    # Reorder layout sequence: Put entire period first and then three separate sub-periods
+    reordered_results = [results_list[-1]] + results_list[:-1]
+    reordered_periods = [period_names[-1]] + period_names[:-1]
+
+    for i, (period_data, p_name) in enumerate(zip(reordered_results, reordered_periods)):
+        ax = axs[i]
+
+        # Style first subplot panel with prominent borders
+        if i == 0:
+            for spine in ax.spines.values():
+                spine.set_linewidth(1.8)       
+                spine.set_color('black')       
+                spine.set_zorder(10)           
+        
+        # Draw Main Panel Background
+        contour_mappable = draw_perf_background(ax, grid_data, line_w=0.8, line_alpha=0.5, contour_alpha=0.2, show_text=True)
+
+        # Generate Inset Axis if requested
+        target_axs = [ax]
+        if higher_than_fog_thresh:
+            cfg = inset_configs[i]
+            ax_ins = ax.inset_axes(cfg['bounds'])
+            ax_ins.set_xlim(cfg['xlim'])
+            ax_ins.set_ylim(cfg['ylim'])
+            ax_ins.set_aspect('auto')
+            ax_ins.set_facecolor('white')
+            ax_ins.tick_params(axis='both', which='major', labelsize=6)
+            
+            # Draw Inset Background
+            draw_perf_background(ax_ins, grid_data, line_w=0.6, line_alpha=0.3, contour_alpha=0.15, show_text=False)
+            target_axs.append(ax_ins)
+
+        # --- UNIFORM TRAJECTORY PLOTTING BLOCK ---
+        splits = period_data['splits']
+        
+        # Verify all necessary sub-period slices are verified in data structures
+        if all(k in splits for k in ['Full', 'First_Half', 'Second_Half']):
+            df_full = splits['Full']
+            df_1st  = splits['First_Half']
+            df_2nd  = splits['Second_Half']
+
+            for model_name, color in model_style_map.items():
+                # Verify identity existence inside current period split metrics
+                if model_name in df_full.index and model_name in df_1st.index and model_name in df_2nd.index:
+                    row_full = df_full.loc[model_name]
+                    row_1st  = df_1st.loc[model_name]
+                    row_2nd  = df_2nd.loc[model_name]
+
+                    # Parse coordinates: Success Ratio (1 - FAR) vs Probability of Detection (POD)
+                    pt_full = (1 - row_full['FAR'], row_full['POD'])
+                    pt_1st  = (1 - row_1st['FAR'],  row_1st['POD'])
+                    pt_2nd  = (1 - row_2nd['FAR'],  row_2nd['POD'])
+
+                    # Set marker logic based on model type
+                    mrkr = "*" if model_name == "Persist_10min" else "o"
+                    sz = 180 if model_name == "Persist_10min" else 120
+
+                    for t_ax in target_axs:
+                        # First Half Point (Leftward Triangle)
+                        t_ax.scatter(*pt_1st, s=sz, c=color, marker=my_marker_1, edgecolor='black', zorder=4, alpha=0.7)
+                        
+                        # Second Half Point (Rightward Triangle)
+                        t_ax.scatter(*pt_2nd, s=sz, c=color, marker=my_marker_2, edgecolor='black', zorder=4, alpha=0.3)
+                        
+                        # Full Window Frame Point (Central Marker Circle/Star)
+                        t_ax.scatter(*pt_full, s=sz, c=color, marker=mrkr, edgecolor='black', zorder=5)
+
+                        # Draw the evolution trajectory connection line
+                        t_ax.plot([pt_1st[0], pt_full[0], pt_2nd[0]], [pt_1st[1], pt_full[1], pt_2nd[1]], 
+                                  color=color, linestyle='-', linewidth=1.2, alpha=0.4, zorder=3)
+
+        # Labels, layout, and panel annotations
+        ax.set_title(p_name, pad=20, fontweight='bold')
+        ax.text(0.05, 0.95, f"{chr(97+i)})", transform=ax.transAxes, fontsize=14, fontweight='bold', 
+                va='top', bbox=dict(boxstyle="square,pad=0.3", facecolor="white", alpha=1))
+        ax.set_xlim(0, 1); ax.set_ylim(0, 1)
+        ax.grid(True, linestyle=':', alpha=0.4)
+
+    # 2. Global Grid Labels Configuration
+    axs[2].set_xlabel('Success Ratio (1 - FAR)', fontsize=14)
+    axs[3].set_xlabel('Success Ratio (1 - FAR)', fontsize=14)
+    axs[0].set_ylabel('Probability of Detection (POD)', fontsize=14)
+    axs[2].set_ylabel('Probability of Detection (POD)', fontsize=14)
+
+    # 3. Global Legend Reconstruction
+    legend_elements = []
+    
+    # Track models and scenario colors
+    for l, c in model_style_map.items():
+        mrkr = '*' if l == "Persist_10min" else 'o'
+        legend_elements.append(Line2D([0], [0], color="none", markerfacecolor=c, label=l, marker=mrkr, markeredgecolor='black', markersize=10))
+    
+    # Trace/Time evolution guides
+    legend_elements.extend([
+        Line2D([0], [0], color='none', marker=my_marker_1, markerfacecolor='gray', markeredgecolor='black', label='First Half Window', markersize=12, alpha=0.7),
+        Line2D([0], [0], color='none', marker='o', markerfacecolor='gray', markeredgecolor='black', label='Full Window Metric', markersize=10),
+        Line2D([0], [0], color='none', marker=my_marker_2, markerfacecolor='gray', markeredgecolor='black', label='Second Half Window', markersize=12, alpha=0.3),
+        Line2D([0], [0], color='black', linestyle='-', linewidth=1.2, alpha=0.4, label='Lead-Time Trajectory')
+    ])
+    
+    axs[0].legend(handles=legend_elements, frameon=True, loc='lower right', prop={'size': 7}, ncols=3)
+
+    # 4. Axes Colorbars Setup
+    for idx in [1, 3]:
+        divider = make_axes_locatable(axs[idx])
+        cax = divider.append_axes("right", size="5%", pad=0.6)
+        fig.colorbar(contour_mappable, cax=cax).set_label('CSI', fontsize=10)
+
+    plt.tight_layout()
+    return fig, axs
