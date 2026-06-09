@@ -606,67 +606,6 @@ def plot_ens_meteogram(prob_df, model_dict, vis_obs, start_date, end_date, resam
     for day in pd.date_range(start_date, end_date, freq='D'):
         ax.axvline(day, c='k', alpha=0.3, lw=0.5)
     plt.tight_layout()
-    
-def plot_performance_diagram(pods, fars, labels, colors=None):
-    """
-    Plots a Roebber (2009) Performance Diagram, showing POD vs Success Ratio 
-    with CSI contours and Bias lines. 
-    Ideal forecasts cluster toward the top-right corner.
-
-    Parameters
-    ----------
-    pods : array-like
-        Probability of Detection values (0 to 1) for each forecast/model.
-    fars : array-like
-        False Alarm Rate values (0 to 1) for each forecast/model.
-    labels : list of str
-        Names/labels for each forecast/model to display in the legend.
-    colors : array-like 
-        RGB or named colors for each point. If None, uses tab10 colormap.
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        Figure object containing the performance diagram.
-    ax : matplotlib.axes.Axes
-        Axes object for further customization.
-    """
-    x = np.linspace(0.001, 1, 100)
-    y = np.linspace(0.001, 1, 100)
-    SR_grid, POD_grid = np.meshgrid(x, y)
-    CSI = 1 / (1/SR_grid + 1/POD_grid - 1) 
-
-    fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(10, 8), dpi=100, squeeze=False)
-    axs = axs.flatten()
-    ax = axs[0]
-    contour = ax.contourf(SR_grid, POD_grid, CSI, levels=np.arange(0, 1.1, 0.1), cmap='Greys', alpha=0.2)
-    cbar = plt.colorbar(contour, ax=ax, pad=0.075)
-    cbar.set_label('Critical Success Index (CSI)', fontsize=14)
-    
-    bias_values = [0.5, 0.8, 1, 1.3, 1.5, 2, 4]
-    for b in bias_values:
-        end_x, end_y = (1, b) if b <= 1 else (1/b, 1)
-        ax.plot([0, end_x], [0, end_y], color='gray', linestyle='--', linewidth=0.8, alpha=0.5)
-        if b<=1:
-            ax.text(end_x, end_y, f' B={b}', fontsize=13, alpha=0.7)
-        else:
-            ax.text(end_x, end_y + 0.8, f' B={b}', fontsize=10, alpha=0.7, 
-                        ha='center', va='bottom', clip_on=False)
-
-    if colors is None:
-        colors = plt.cm.tab10(np.linspace(0, 1, len(pods)))
-
-    for pod, far, label, color in zip(pods, fars, labels, colors):
-        ax.scatter(1 - far, pod, s=120, label=label, color=color, edgecolor='black', zorder=5)
-
-    ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
-    ax.set_xlabel('Success Ratio (1 - FAR)', fontsize=14)
-    ax.set_ylabel('Probability of Detection (POD)', fontsize=14)
-    ax.grid(True, linestyle=':', alpha=0.4)
-    ax.legend(loc='lower right', frameon=True, prop={'size': 7}, ncols=2)
-    fig.tight_layout()
-    return fig, ax
 
 def plot_multi_period_performance(results_list, period_names, model_style_map, fc_style_map, higher_than_fog_thresh):
     """
@@ -1244,90 +1183,6 @@ def plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, fog_thresh)
     plt.tight_layout()
     return fig,axs
 
-def plot_fog_events(df_eval, model_data, FOG_THRESH, event_lib, truth, higher_than_fog_thresh, debug=False):
-    """
-    Plot observations and models with fog events and TAF validity window.
-    
-    Parameters:
-    -----------
-    df_eval : pd.DataFrame
-        Evaluation dataframe containing obs_vis and is_valid columns
-    model_data : dict
-        Dictionary of model forecast series
-    FOG_THRESH : float
-        Fog threshold in km
-    event_lib : dict 
-        Event library for debug output
-    truth : pd.Series 
-        Truth series for debug output
-    higher_than_fog_thresh : bool
-        If True, the "event" is defined as visibility > fog_thresh (opportunity). 
-        If False, the "event" is defined as visibility <= fog_thresh (hazard), by default False.
-    debug : bool
-        Whether to print debugging information
-    
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        Figure object containing the reliability diagram.
-    ax : matplotlib.axes.Axes
-        Axes object for further customization.
-    """
-    fig, ax = plt.subplots(figsize=(16, 8))
-    ax.plot(df_eval.index, df_eval['obs_vis'], label='Observed Vis (km)', color='black')
-    for model_name, model_series in model_data.items():
-        ax.plot(model_series.index, model_series, label=f'{model_name}', lw=0.7)
-
-    # Fog threshold
-    ax.axhline(FOG_THRESH, color='red', linestyle='--', label='Fog Threshold')
-
-    # Highlight TAF valid times
-    ax.fill_between(
-        df_eval.index,
-        0,
-        df_eval['obs_vis'].max(),
-        where=~df_eval['is_valid'],
-        color='lightgray',
-        alpha=0.5,
-        label='No TAF'
-    )
-
-    # Highlight fog events (ONLY within mask)
-    if higher_than_fog_thresh:
-        fog_masked = (df_eval['obs_vis'] > FOG_THRESH) & (df_eval['is_valid'])
-    else:
-        fog_masked = (df_eval['obs_vis'] <= FOG_THRESH) & (df_eval['is_valid'])
-
-    ax.scatter(
-        df_eval.index[fog_masked],
-        df_eval['obs_vis'][fog_masked],
-        color='red',
-        s=60,
-        label='Fog events (used in metrics)',
-        zorder=5
-    )
-
-    ax.set_title("Visibility with Fog Events and TAF Validity Window")
-    ax.set_ylabel("Visibility (km)")
-    ax.set_ylim(-0.1, 2)
-    ax.legend(prop=dict(size=7), ncol=2, loc="upper left")
-    ax.grid(alpha=0.3)
-
-    if debug and event_lib is not None and truth is not None:
-        model = event_lib['IFS']
-        obs_events = truth[truth == True]
-        print("Checking each observed fog event:\n")
-        for t in obs_events.index:
-            print(f"Time: {t}")
-            print("Obs:", truth.loc[t])
-            if t in model.index:
-                print("Model:", model.loc[t])
-            else:
-                print("Model: MISSING TIMESTAMP")
-            print("-" * 30)
-    
-    return fig,ax
-
 def calculate_ets(a, b, c, d):
     """
     Calculates the Equitable Threat Score (ETS).
@@ -1366,4 +1221,3 @@ def calculate_ets(a, b, c, d):
     ets = numerator / denominator
     
     return ets
-# %%
