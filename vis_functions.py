@@ -1,11 +1,6 @@
-# Ref: L. Donati
-# lorenzo.luca.donati@misu.su.se
-
-# Scripts for "Paper title"
-# by Authors...
-
-# Disclaimer: AI was used to add function headers and edit some snippets
-#             of code (mostly related to plotting).
+# Maintainer: L.L. Donati - lorenzo.luca.donati@misu.su.se
+# Scripts for "On the predictability of near-surface visibility over the Arctic Ocean"
+# by Luise Schulte, Lorenzo Luca Donati, Vania Lopez Garcia, Linus Magnusson, Ian M. Brooks
 
 #%% Imports
 import matplotlib.pyplot as plt
@@ -365,9 +360,9 @@ def plot_metrics_summary(metrics_df):
         ax2.bar_label(container, fmt='%.0f')
     return fig1, fig2
 
-def get_evaluation_library(df, model_dict, obs_series, p_thresh, fog_thresh, higher_than_fog_thresh):
+def get_evaluation_library(df, model_dict, obs_series, fog_thresh, higher_than_fog_thresh):
     """
-    Creates a standardized library of boolean event series for all models and the forecaster.
+    Creates a standardized library of boolean event series for all models.
 
     Parameters
     ----------
@@ -377,9 +372,6 @@ def get_evaluation_library(df, model_dict, obs_series, p_thresh, fog_thresh, hig
         Dictionary mapping model names to visibility series { 'Name': pd.Series(vis_km) }.
     obs_series : pd.Series
         Observed visibility time series (km).
-    p_thresh : float 
-        Probability threshold for defining forecaster event, by default 0.0.
-        Forecaster event occurs when p_event > p_thresh.
     fog_thresh : float 
         Visibility threshold for defining fog event (km), by default 1.0.
         Event occurs when visibility < fog_thresh.
@@ -403,9 +395,6 @@ def get_evaluation_library(df, model_dict, obs_series, p_thresh, fog_thresh, hig
     
     # 2. Build the Event Library
     event_library = {}
-    
-    # Add Forecaster (treating P > p_thresh as an event)
-    event_library['Forecaster'] = (df['p_event'] > p_thresh)
     
     # Add all numerical models
     for name, vis_series in model_dict.items():
@@ -615,10 +604,7 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, f
     Parameters
     ----------
     results_list : list of dict
-        List containing dictionaries of metrics for each period. Expected keys per dict:
-        - 'models': DataFrame of model metrics
-        - 'fc_05': DataFrame rows for Forecaster (threshold 0.5)
-        - 'fc_00': DataFrame rows for Forecaster (threshold 0.0)
+        List containing dictionaries of metrics for each period.
     period_names : list of str
         Titles for each subplot (e.g., ['Period 1', 'Period 2', ...]).
     model_style_map : dict

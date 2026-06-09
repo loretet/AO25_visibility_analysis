@@ -1,6 +1,11 @@
-# Ref: L. Donati
-# lorenzo.luca.donati@misu.su.se
-# Scripts for "Paper title" by Authors...
+# Maintainer: L.L. Donati - lorenzo.luca.donati@misu.su.se
+# Scripts for "On the predictability of near-surface visibility over the Arctic Ocean"
+# by Luise Schulte, Lorenzo Luca Donati, Vania Lopez Garcia, Linus Magnusson, Ian M. Brooks
+
+# AI disclosure:
+# AI was used to populate this script with comments and docstrings, and to
+# assist in the structuring the plots in a more visually appealing way. The core logic, 
+# data handling, and metric calculations were developed by the author.
 
 #%% Imports
 import vis_functions as vf
@@ -72,6 +77,7 @@ MODEL_REGISTRY = {
 # Extract, transform, and load data uniformly to time_vec.
 # ---------------------------------------------------------
 time_vec = pd.date_range(start=CONFIG['start_date'], end=CONFIG['end_date'], freq=CONFIG['time_res'], inclusive="both")
+# model_data will contain the physical visibility values.
 model_data = {}
 
 # --- A. Load Observations ---
@@ -84,18 +90,18 @@ taf_table['Date'] = pd.to_datetime(taf_table['Date'])
 mask = (taf_table['Date'] >= pd.to_datetime(CONFIG['start_date']).normalize()) & \
        (taf_table['Date'] <= pd.to_datetime(CONFIG['end_date']).normalize())
 
-df_eval = vf.df_TAF_gen(taf_table.loc[mask].reset_index(drop=True), time_vec, debug=False)
-df_eval = vf.calculate_scenarios(df_eval)
-df_eval = vf.assign_event_probabilities(df_eval, CONFIG['fog_thresh'], CONFIG['higher_than_fog_thresh'])
+taf_eval = vf.df_TAF_gen(taf_table.loc[mask].reset_index(drop=True), time_vec, debug=False)
+taf_eval = vf.calculate_scenarios(taf_eval)
+taf_eval = vf.assign_event_probabilities(taf_eval, CONFIG['fog_thresh'], CONFIG['higher_than_fog_thresh'])
 
-df_eval['obs_vis'] = vis_obs
-df_eval['obs_event'] = (df_eval['obs_vis'] > CONFIG['fog_thresh']).astype(float) if CONFIG['higher_than_fog_thresh'] else \
-                       (df_eval['obs_vis'] <= CONFIG['fog_thresh']).astype(float)
+taf_eval['obs_vis'] = vis_obs
+taf_eval['obs_event'] = (taf_eval['obs_vis'] > CONFIG['fog_thresh']).astype(float) if CONFIG['higher_than_fog_thresh'] else \
+                       (taf_eval['obs_vis'] <= CONFIG['fog_thresh']).astype(float)
 
 model_data.update({
-    'TAF_Base': df_eval['main_scenario'],
-    'TAF_Pessimistic': df_eval['worst_vis'],
-    'TAF_Optimistic': df_eval['best_vis']
+    'TAF_Base': taf_eval['main_scenario'],
+    'TAF_Pessimistic': taf_eval['worst_vis'],
+    'TAF_Optimistic': taf_eval['best_vis']
 })
 
 # --- C. Load Models via Registry ---
@@ -129,43 +135,70 @@ MODEL_STYLE = {name: meta['color'] for name, meta in MODEL_REGISTRY.items() if '
 
 #%% 3. EVALUATION 
 # ---------------------------------------------------------
-# Compute binary verification metrics over defined periods.
+# Compute binary verification metrics over defined periods and TAF halves.
 # ---------------------------------------------------------
-truth, ev_lib_base = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis'], 0.5, CONFIG['fog_thresh'], CONFIG['higher_than_fog_thresh'])
-_    , ev_lib_any = vf.get_evaluation_library(df_eval, model_data, df_eval['obs_vis'], 0.0, CONFIG['fog_thresh'], CONFIG['higher_than_fog_thresh'])
 
-models_lib = {k: v for k, v in ev_lib_base.items() if k != 'Forecaster'}
+# 1. Convert all continuous data in model_data into boolean events at once.
+# ev_lib converts continuous visibility values into binary True/False events based on the fog threshold.
+truth, ev_lib = vf.get_evaluation_library(
+    taf_eval, model_data, taf_eval['obs_vis'], 
+    fog_thresh=CONFIG['fog_thresh'], 
+    higher_than_fog_thresh=CONFIG['higher_than_fog_thresh']
+)
+
+# Extract all thresholded series (Numerical Models + TAF variants)
+models_lib = {k: v for k, v in ev_lib.items() if k != 'Forecaster'}
+# multi_period_results will contain scalar verification scores across different time windows.
 multi_period_results = []
 
-mask_valid = df_eval['is_valid'] == True
-mask_valid_1st = df_eval['is_valid_first_half'] == True
-mask_valid_2nd = df_eval['is_valid_second_half'] == True
+# Define validity masks
+mask_valid = taf_eval['is_valid'] == True
+mask_1st   = taf_eval['is_valid_first_half'] == True
+mask_2nd   = taf_eval['is_valid_second_half'] == True
 
 for start_t, end_t, p_name in PERIODS:
-    t_mask = (df_eval.index >= start_t) & (df_eval.index <= end_t)
+    t_mask = (taf_eval.index >= start_t) & (taf_eval.index <= end_t)
     
-    eval_mask_mod = t_mask if CONFIG['model_24h'] else t_mask & mask_valid
-    eval_mask_fc = t_mask & mask_valid
+    # Generate the evaluation masks for each split context
+    sub_periods = {
+        'Full':       t_mask if CONFIG['model_24h'] else (t_mask & mask_valid),
+        'First_Half':  t_mask & mask_1st,
+        'Second_Half': t_mask & mask_2nd
+    }
     
-    mod_window_lib = {k: v.loc[eval_mask_mod] for k, v in models_lib.items()}
-    
-    # Bundle forecaster metrics extraction for cleanliness
-    def get_fc_metrics(lib, mask, label):
-        return pd.DataFrame(vf.get_metrics(lib['Forecaster'].loc[mask], truth.loc[mask]), index=[label]).iloc[0]
-
+    # Compute metrics for all elements in models_lib across each split
+    period_splits = {}
+    for split_name, current_mask in sub_periods.items():
+        window_truth = truth.loc[current_mask]
+        window_models = {k: v.loc[current_mask] for k, v in models_lib.items()}
+        
+        # vf.compute_all_metrics returns a DataFrame of scores for all models
+        period_splits[split_name] = vf.compute_all_metrics(window_truth, window_models)
+        
     multi_period_results.append({
-        'models': vf.compute_all_metrics(truth.loc[eval_mask_mod], mod_window_lib),
-        'fc_base': get_fc_metrics(ev_lib_base, eval_mask_fc, 'Forecaster_base'),
-        'fc_any': get_fc_metrics(ev_lib_any, eval_mask_fc, 'Forecaster_any'),
-        'fc_first_any': get_fc_metrics(ev_lib_any, t_mask & mask_valid_1st, 'Forecaster_FirstHalf_any'),
-        'fc_first_base': get_fc_metrics(ev_lib_base, t_mask & mask_valid_1st, 'Forecaster_FirstHalf_base'),
-        'fc_second_any': get_fc_metrics(ev_lib_any, t_mask & mask_valid_2nd, 'Forecaster_SecondHalf_any'),
-        'fc_second_base': get_fc_metrics(ev_lib_base, t_mask & mask_valid_2nd, 'Forecaster_SecondHalf_base'),
+        'period': p_name,
+        'splits': period_splits
     })
 
+# --- Console Outputs (Example: Entire Cruise) ---
+eval_mask_fc = (taf_eval.index >= CONFIG['start_date']) & (taf_eval.index <= CONFIG['end_date']) & mask_valid
+bs_ens = vf.compute_brier_score(prob_fog[eval_mask_fc], taf_eval['obs_event'][eval_mask_fc])
+
+# Extract the 'Full' split for the final period (Entire Cruise)
+final_res = multi_period_results[-1]['splits']['Full']
+
+print("\n--- EVALUATION SUMMARY (ENTIRE CRUISE - FULL WINDOW) ---")
+print(f"Ensemble Brier score: {bs_ens:.4f}\n")
+print(final_res.to_string(float_format="%.3f"))
+print(f"\n{'Model':<25} | {'ETS':<10} | Contingency [Hits, Misses, FA, CN]")
+print("-" * 65)
+for name, r in final_res.iterrows():
+    ets = vf.calculate_ets(r["Hits"], r["False alarms"], r["Misses"], r["Correct negatives"])
+    print(f"{name:<25} | {ets:<10.4f} | [{int(r['Hits'])}, {int(r['Misses'])}, {int(r['False alarms'])}, {int(r['Correct negatives'])}]")
+
 # Console Outputs
-eval_mask_fc = (df_eval.index >= CONFIG['start_date']) & (df_eval.index <= CONFIG['end_date']) & mask_valid
-bs_ens = vf.compute_brier_score(prob_fog[eval_mask_fc], df_eval['obs_event'][eval_mask_fc])
+eval_mask_fc = (taf_eval.index >= CONFIG['start_date']) & (taf_eval.index <= CONFIG['end_date']) & mask_valid
+bs_ens = vf.compute_brier_score(prob_fog[eval_mask_fc], taf_eval['obs_event'][eval_mask_fc])
 
 final_res = pd.concat([
     multi_period_results[-1]['models'], 
@@ -203,15 +236,18 @@ fig1.suptitle("Metrics summary"); fig2.suptitle("Metrics summary")
 
 # 3. Meteogram (Deterministic models only via dictionary comprehension)
 vf.plot_ens_meteogram(
-    prob_df=vf.calculate_stacked_probabilities(df_eval), 
+    prob_df=vf.calculate_stacked_probabilities(taf_eval), 
     model_dict={k: v for k, v in model_data.items() if 'Ens' not in k and 'TAF' not in k}, 
-    vis_obs=df_eval['obs_vis'], 
+    vis_obs=taf_eval['obs_vis'], 
     start_date='2025-08-20', 
     end_date='2025-08-30'
 )
 
 # 4. Ensemble Diagnostics
 if ens_aligned is not None:
-    vf.plot_reliability_diagram(prob_fog, df_eval['obs_event'], n_bins=20)
-    vf.plot_talagrand_histogram(ens_aligned, df_eval['obs_vis'])
+    vf.plot_reliability_diagram(prob_fog, taf_eval['obs_event'], n_bins=20)
+    vf.plot_talagrand_histogram(ens_aligned, taf_eval['obs_vis'])
+
+
+# #%%
 
