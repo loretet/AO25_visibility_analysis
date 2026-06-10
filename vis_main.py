@@ -214,9 +214,10 @@ fig, axs = vf.plot_multi_period_performance_matrix(
     results_high=matrix_results['high'],
     results_low=matrix_results['low'],
     period_names=[d[2] for d in PERIODS],
-    model_style_map=MODEL_STYLE
+    model_style_map=MODEL_STYLE,
+    all_periods=True
 )
-plt.savefig("performance_matrix.pdf")
+plt.savefig("performance_matrix_full.pdf")
 
 # 2. Metrics Summary (example for entire period, considering both halves )
 fig1, fig2 = vf.plot_metrics_summary(matrix_results["high"][0]["splits"]["Full"])
@@ -229,3 +230,4 @@ vf.plot_reliability_diagram(prob_fog, taf_eval['obs_event'], n_bins=20)
 vf.plot_talagrand_histogram(ens_aligned, taf_eval['obs_vis'])
 
 #%%
+

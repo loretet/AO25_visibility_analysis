@@ -574,17 +574,17 @@ def calculate_ets(a, b, c, d):
     return ets
 
 
-def plot_multi_period_performance_matrix(results_high, results_low, period_names, model_style_map):
+def plot_multi_period_performance_matrix(results_high, results_low, period_names, model_style_map, all_periods=True):
     """
-    Generates a 4x2 matrix performance diagram matching an A4 page layout.
+    Generates a performance diagram matrix matching an A4 page or a single 1x2 comparison.
     
-    Left Column (Col 0): Higher-than-fog threshold evaluation with detailed inset zooms.
-    Right Column (Col 1): Low visibility threshold evaluation across full scale.
-    
-    Rows correspond to time windows: Row 0 is Entire Period; Rows 1-3 are sub-periods.
+    Parameters
+    ----------
+    all_periods : bool, default=True
+        If True, plots a 4x2 matrix grid (Entire Period + 3 Sub-periods).
+        If False, plots a 1x2 row comparison containing only the "Entire Period".
     """
-
-    # Create markers for different data halves
+    # Create markers for different data halves (Assumes get_text_marker is defined)
     my_marker_1 = get_text_marker("A")
     my_marker_2 = get_text_marker("B")
 
@@ -595,13 +595,24 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
     CSI = 1 / (1/SR_grid + 1/POD_grid - 1)
     grid_data = (SR_grid, POD_grid, CSI)
 
-    fig, axs = plt.subplots(4, 3, figsize=(17, 25), 
-                            gridspec_kw={'width_ratios': [1, 1, 0.05]})
-    contour_mappable = None
-    plot_axs = axs[:, :2]   # 4x2 array for your performance plots
-    cbar_axs = axs[:, 2]
+    # Dynamically determine rows based on display scope
+    n_rows = 4 if all_periods else 1
 
-    # Hardcoded Inset Axis Windows Config for Column 0 (Higher than Threshold)
+    if all_periods:    
+        fig, axs = plt.subplots(4, 3, figsize=(17, 25), 
+                                gridspec_kw={'width_ratios': [1, 1, 0.05]})
+    else:
+        # A 1x3 configuration preserves identical plot dimensions across both columns
+        fig, axs = plt.subplots(1, 3, figsize=(15, 6.5), 
+                                gridspec_kw={'width_ratios': [1, 1, 0.05]})
+        # Force 2D structure for uniform downstream indexing layout matching
+        axs = axs.reshape(1, 3)
+
+    contour_mappable = None
+    plot_axs = axs[:, :2]   # 4x2 or 1x2 array for your performance plots
+    cbar_axs = axs[:, 2]    # Length 4 or Length 1 array for colorbars
+
+    # Inset axis configurations mapped to row indices
     inset_configs_high = {
         0: {'bounds': [0.08, 0.18, 0.50, 0.56], 'xlim': [0.79, 1.0], 'ylim': [0.837, 1.01]},
         1: {'bounds': [0.08, 0.15, 0.70, 0.30], 'xlim': [0.38, 0.64], 'ylim': [0.84, 1.02]},
@@ -616,57 +627,58 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
         3: {'bounds': None,                     'xlim': [0,0],         'ylim': [0,0]}
     }
 
-    # FIX 1 & 2: Safe reordering of both data streams and period strings
     reordered_high = [results_high[-1]] + results_high[:-1]
     reordered_low  = [results_low[-1]] + results_low[:-1]
-    reordered_periods = [period_names[-1]] + period_names[:-1]
+    
+    if all_periods:
+        reordered_periods = [period_names[-1]] + period_names[:-1]
+        panel_labels = [['a', 'b'], ['c', 'd'], ['e', 'f'], ['g', 'h']]
+    else:
+        reordered_periods = [period_names[-1]]
+        panel_labels = [['a', 'b']]
 
     data_sources = [reordered_high, reordered_low]
-    panel_labels = [['a', 'b'], ['c', 'd'], ['e', 'f'], ['g', 'h']]
 
     for i, p_name in enumerate(reordered_periods):
         for j in range(2):
             ax = plot_axs[i, j]
             is_high_thresh_col = (j == 0)
             
-            # Extract metrics using the unified, safely reordered streams
             results = data_sources[j][i] 
             splits = results['splits']
 
-            # Highlight Row 0 (Entire Cruise Summary) with prominent thick borders across both columns
+            # Highlight Row 0 (Entire Cruise Summary) with prominent thick borders
             if i == 0:
                 for spine in ax.spines.values():
                     spine.set_linewidth(1.8)       
                     spine.set_color('black')       
                     spine.set_zorder(10)           
             
-            # FIX 3: Point to correct internal background-drawing helper function name
             contour_mappable = draw_perf_background(ax, grid_data, line_w=0.8, line_alpha=0.5, contour_alpha=0.2, show_text=True)
 
-            # Generate and configure Inset Axis ONLY for the left column
+            # Generate and configure Inset Axis
             target_axs = [ax]
-            draw_hatching(ax,alpha=0.7,borders=True)
+            draw_hatching(ax, alpha=0.7, borders=True)
             cfg = inset_configs_high[i] if is_high_thresh_col else inset_configs_low[i]
+            
             if cfg["bounds"] is not None:
                 ax_ins = ax.inset_axes(cfg['bounds'])
                 ax_ins.set_xlim(cfg['xlim'])
                 ax_ins.set_ylim(cfg['ylim'])
                 ax_ins.set_aspect('auto')
-                if cfg['bounds'][2]>cfg['bounds'][2]*2:
-                    ax_ins.xaxis.set_major_locator(MaxNLocator(nbins=4))
-                    ax_ins.yaxis.set_major_locator(MaxNLocator(nbins=3))
-                elif cfg['bounds'][2] < cfg['bounds'][2]/2:
+                
+                if cfg['bounds'][2] > cfg['bounds'][2] * 2 or cfg['bounds'][2] < cfg['bounds'][2] / 2:
                     ax_ins.xaxis.set_major_locator(MaxNLocator(nbins=4))
                     ax_ins.yaxis.set_major_locator(MaxNLocator(nbins=3))
                 else: 
                     ax_ins.xaxis.set_major_locator(MaxNLocator(nbins=4))
                     ax_ins.yaxis.set_major_locator(MaxNLocator(nbins=4))
+                    
                 ax_ins.tick_params(axis='both', which='major', labelsize=8)
-                # ax_ins.axvspan(cfg['xlim'][0], cfg['xlim'][1], color='yellow', alpha=0.08, zorder=1)
                 draw_hatching(ax_ins)
                 draw_perf_background(ax_ins, grid_data, line_w=0.6, line_alpha=0.3, contour_alpha=0.15, show_text=False)
                 target_axs.append(ax_ins)
-                ax.indicate_inset_zoom(ax_ins, edgecolor="grey",alpha=1,lw=0.7)
+                ax.indicate_inset_zoom(ax_ins, edgecolor="grey", alpha=1, lw=0.7)
 
             # --- UNIFORM TRAJECTORY PLOTTING BLOCK ---
             if all(k in splits for k in ['Full', 'First_Half', 'Second_Half']):
@@ -680,25 +692,21 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
                         row_1st  = df_1st.loc[model_name]
                         row_2nd  = df_2nd.loc[model_name]
 
-                        # Success Ratio (1 - FAR) vs POD coordinates
                         pt_full = (1 - row_full['FAR'], row_full['POD'])
                         pt_1st  = (1 - row_1st['FAR'],  row_1st['POD'])
                         pt_2nd  = (1 - row_2nd['FAR'],  row_2nd['POD'])
 
-                        # Marker configuration rules based on scenario types
                         mrkr = "*" if model_name == "Persist_10min" else "o"
                         sz = 180 if model_name == "Persist_10min" else 120
 
                         for t_ax in target_axs:
-                            # First Half Window marker
                             t_ax.scatter(*pt_1st, s=sz*2.2, c=color, marker=my_marker_1, edgecolor=color, zorder=4, alpha=0.7)
                             t_ax.scatter(*pt_1st, s=sz*0.05, c=color, marker="o", edgecolor=color, zorder=4, alpha=0.35)
-                            # Second Half Window marker with transparency fade
+                            
                             t_ax.scatter(*pt_2nd, s=sz*2.2, c=color, marker=my_marker_2, edgecolor=color, zorder=4, alpha=0.7)
                             t_ax.scatter(*pt_2nd, s=sz*0.05, c=color, marker="o", edgecolor=color, zorder=4, alpha=0.35)
-                            # Central Full Window reference point
+                            
                             t_ax.scatter(*pt_full, s=sz, c=color, marker=mrkr, edgecolor='black', zorder=5, alpha=0.8)
-                            # Lead-time evolution connection track
                             t_ax.plot([pt_1st[0], pt_full[0], pt_2nd[0]], [pt_1st[1], pt_full[1], pt_2nd[1]], 
                                       color=color, linestyle='-', linewidth=1.2, alpha=0.4, zorder=3)
 
@@ -706,7 +714,6 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
             col_suffix = " (Windows of opportunity)" if is_high_thresh_col else " (Low visibility events)"
             ax.set_title(f"{p_name}{col_suffix}", pad=20, fontweight='bold' if i == 0 else 'normal')
             
-            # Panel indexing indicators
             p_letter = panel_labels[i][j]
             ax.text(0.05, 0.95, f"{p_letter})", transform=ax.transAxes, fontsize=14, fontweight='bold', 
                     va='top', bbox=dict(boxstyle="square,pad=0.3", facecolor="white", alpha=1))
@@ -714,11 +721,11 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
             ax.set_xlim(-0.02, 1.02); ax.set_ylim(-0.02, 1.02)
             ax.grid(True, linestyle=':', alpha=0.4)
 
-    # 2. Clean Matrix Edge Axis Labels (Prevents visual clipping and inner crowding)
+    # 2. Dynamic Label Placement (Targets row edges dynamically)
     for j in range(2):
-        axs[3, j].set_xlabel('Success Ratio (1 - FAR)', fontsize=13)
-    for i in range(4):
-        axs[i, 0].set_ylabel('Probability of Detection (POD)', fontsize=13)
+        plot_axs[-1, j].set_xlabel('Success Ratio (1 - FAR)', fontsize=13)
+    for i in range(n_rows):
+        plot_axs[i, 0].set_ylabel('Probability of Detection (POD)', fontsize=13)
 
     # 3. Consolidated Global Legend on Top Left Panel
     legend_elements = []
@@ -731,18 +738,11 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
         Line2D([0], [0], color='none', marker=my_marker_1, markerfacecolor='white', markeredgecolor='black', label='First Half Window (A)', markersize=11, alpha=1),
         Line2D([0], [0], color='none', marker=my_marker_2, markerfacecolor='white', markeredgecolor='black', label='Second Half Window (B)', markersize=11, alpha=1),
     ])
-    axs[0,0].legend(handles=legend_elements, frameon=True, loc='lower right', prop={'size': 8}, ncols=4)
+    plot_axs[0, 0].legend(handles=legend_elements, frameon=True, loc='lower right', prop={'size': 8}, ncols=4)
 
-    # 4. Vertical Colorbars aligned cleanly in the 3rd column
-    for i in range(4):
-        # Directly put the colorbar in the dedicated ax slot
+    # 4. Vertical Colorbars aligned cleanly in the 3rd column bounding boxes
+    for i in range(n_rows):
         fig.colorbar(contour_mappable, cax=cbar_axs[i]).set_label('CSI', fontsize=10)
-        
-    # Set labels on the correct outer edge axes
-    for j in range(2):
-        plot_axs[3, j].set_xlabel('Success Ratio (1 - FAR)', fontsize=13)
-    for i in range(4):
-        plot_axs[i, 0].set_ylabel('Probability of Detection (POD)', fontsize=13)
     
     plt.tight_layout()
     return fig, plot_axs
@@ -777,7 +777,7 @@ def draw_perf_background(ax, grid_data, line_w, line_alpha, contour_alpha, show_
             if b <= 1:
                 # Labels on the right boundary (X=1)
                 # Use x=1.02 to push it slightly outside the right spine
-                ax.text(1.01, end_y, f' B={b}', 
+                ax.text(1.02, end_y, f' B={b}', 
                         transform=ax.transData,
                         fontsize=10, alpha=0.7, 
                         ha='left', va='center', 
@@ -785,7 +785,7 @@ def draw_perf_background(ax, grid_data, line_w, line_alpha, contour_alpha, show_
             else:
                 # Labels on the top boundary (Y=1)
                 # Use y=1.02 to push it slightly above the top spine
-                ax.text(end_x, 1.01, f' B={b}', 
+                ax.text(end_x, 1.02, f' B={b}', 
                         transform=ax.transData,
                         fontsize=10, alpha=0.7, 
                         ha='center', va='bottom', 
