@@ -216,6 +216,7 @@ fig, axs = vf.plot_multi_period_performance_matrix(
     period_names=[d[2] for d in PERIODS],
     model_style_map=MODEL_STYLE
 )
+plt.savefig("performance_matrix.pdf")
 
 # 2. Metrics Summary (example for entire period, considering both halves )
 fig1, fig2 = vf.plot_metrics_summary(matrix_results["high"][0]["splits"]["Full"])

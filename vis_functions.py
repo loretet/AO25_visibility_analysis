@@ -645,6 +645,7 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
 
             # Generate and configure Inset Axis ONLY for the left column
             target_axs = [ax]
+            draw_hatching(ax,alpha=0.7,borders=True)
             cfg = inset_configs_high[i] if is_high_thresh_col else inset_configs_low[i]
             if cfg["bounds"] is not None:
                 ax_ins = ax.inset_axes(cfg['bounds'])
@@ -690,11 +691,13 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
 
                         for t_ax in target_axs:
                             # First Half Window marker
-                            t_ax.scatter(*pt_1st, s=sz*2.2, c=color, marker=my_marker_1, edgecolor=color, zorder=4, alpha=1)
+                            t_ax.scatter(*pt_1st, s=sz*2.2, c=color, marker=my_marker_1, edgecolor=color, zorder=4, alpha=0.7)
+                            t_ax.scatter(*pt_1st, s=sz*0.05, c=color, marker="o", edgecolor=color, zorder=4, alpha=0.35)
                             # Second Half Window marker with transparency fade
-                            t_ax.scatter(*pt_2nd, s=sz*2.2, c=color, marker=my_marker_2, edgecolor=color, zorder=4, alpha=1)
+                            t_ax.scatter(*pt_2nd, s=sz*2.2, c=color, marker=my_marker_2, edgecolor=color, zorder=4, alpha=0.7)
+                            t_ax.scatter(*pt_2nd, s=sz*0.05, c=color, marker="o", edgecolor=color, zorder=4, alpha=0.35)
                             # Central Full Window reference point
-                            t_ax.scatter(*pt_full, s=sz, c=color, marker=mrkr, edgecolor='black', zorder=5)
+                            t_ax.scatter(*pt_full, s=sz, c=color, marker=mrkr, edgecolor='black', zorder=5, alpha=0.8)
                             # Lead-time evolution connection track
                             t_ax.plot([pt_1st[0], pt_full[0], pt_2nd[0]], [pt_1st[1], pt_full[1], pt_2nd[1]], 
                                       color=color, linestyle='-', linewidth=1.2, alpha=0.4, zorder=3)
@@ -708,7 +711,7 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
             ax.text(0.05, 0.95, f"{p_letter})", transform=ax.transAxes, fontsize=14, fontweight='bold', 
                     va='top', bbox=dict(boxstyle="square,pad=0.3", facecolor="white", alpha=1))
             
-            ax.set_xlim(0, 1); ax.set_ylim(0, 1)
+            ax.set_xlim(-0.02, 1.02); ax.set_ylim(-0.02, 1.02)
             ax.grid(True, linestyle=':', alpha=0.4)
 
     # 2. Clean Matrix Edge Axis Labels (Prevents visual clipping and inner crowding)
@@ -790,7 +793,7 @@ def draw_perf_background(ax, grid_data, line_w, line_alpha, contour_alpha, show_
                     
     return mappable
 
-def draw_hatching(ax):
+def draw_hatching(ax,alpha=1,borders=False):
     """
     Creates a hatched buffer region beyond the [0, 1] domain.
     """
@@ -799,13 +802,17 @@ def draw_hatching(ax):
     color = 'lightgray'
     
     # Left buffer
-    ax.axvspan(-0.1, 0, facecolor='none', hatch=hatch_style, edgecolor=color, zorder=1)
+    ax.axvspan(-0.1, 0, facecolor='none', hatch=hatch_style, edgecolor=color, zorder=1, alpha=alpha)
     # Right buffer
-    ax.axvspan(1, 1.1, facecolor='none', hatch=hatch_style, edgecolor=color, zorder=1)
+    ax.axvspan(1, 1.1, facecolor='none', hatch=hatch_style, edgecolor=color, zorder=1, alpha=alpha)
     # Bottom buffer
-    ax.axhspan(-0.1, 0, facecolor='none', hatch=hatch_style, edgecolor=color, zorder=1)
+    ax.axhspan(-0.1, 0, facecolor='none', hatch=hatch_style, edgecolor=color, zorder=1, alpha=alpha)
     # Top buffer
-    ax.axhspan(1, 1.1, facecolor='none', hatch=hatch_style, edgecolor=color, zorder=1)
+    ax.axhspan(1, 1.1, facecolor='none', hatch=hatch_style, edgecolor=color, zorder=1, alpha=alpha)
+
+    # Lines marking [0,1] grid
+    if borders:
+        ax.plot([0, 1, 1, 0, 0], [0, 0, 1, 1, 0], color='black', linewidth=0.8, zorder=2,alpha=0.45)
 
 def get_text_marker(text, size=20):
     # Create a TextPath object
