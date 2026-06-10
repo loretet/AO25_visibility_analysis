@@ -80,7 +80,7 @@ time_vec = pd.date_range(start=CONFIG['start_date'], end=CONFIG['end_date'], fre
 # model_data will contain the physical visibility values.
 model_data = {}
 
-# --- A. Load Observations ---
+# --- A. Load observations ---
 with xr.open_dataset(CONFIG['paths']['obs'], decode_timedelta=True) as ds_obs:
     vis_obs = np.clip(ds_obs[CONFIG['obs_var']].to_series() * 1e-3, 0, 10).reindex(time_vec)
 
@@ -104,11 +104,11 @@ model_data.update({
     'TAF_Optimistic': taf_eval['best_vis']
 })
 
-# --- C. Load Models via Registry ---
+# --- C. Load models via registry ---
 event_val = 10.0 if CONFIG['higher_than_fog_thresh'] else 0.0
 non_event_val = 0.0 if CONFIG['higher_than_fog_thresh'] else 10.0
 
-# Pre-load ensemble data if requested by the registry
+# Pre-load ensemble data 
 ens_aligned = None
 prob_fog = None
 if any(meta['type'].startswith('ens') for meta in MODEL_REGISTRY.values()):
@@ -158,7 +158,7 @@ for regime in ['high', 'low']:
     taf_eval['obs_event'] = (taf_eval['obs_vis'] > CONFIG['fog_thresh']).astype(float) if is_high_target else \
                            (taf_eval['obs_vis'] <= CONFIG['fog_thresh']).astype(float)
     
-    # 2. Dynamic thresholding for numerical models and TAF interpretive choices
+    # 2. Dynamic thresholdg for numerical models and TAF interpretive choices
     truth, ev_lib = vf.get_evaluation_library(
         model_data, taf_eval['obs_vis'], 
         fog_thresh=CONFIG['fog_thresh'], 
@@ -194,7 +194,7 @@ for regime in ['high', 'low']:
             'splits': period_splits
         })
 
-# --- Consolidated Console Outputs (Example: Entire Cruise, High-Vis) ---
+# Console output (Example: Entire Cruise, High-Vis) ---
 eval_mask_fc = (taf_eval.index >= CONFIG['start_date']) & (taf_eval.index <= CONFIG['end_date']) & mask_valid
 bs_ens = vf.compute_brier_score(prob_fog[eval_mask_fc], (taf_eval['obs_vis'] > CONFIG['fog_thresh'])[eval_mask_fc].astype(float))
 final_res_high = matrix_results['high'][-1]['splits']['Full']
@@ -209,7 +209,7 @@ print(final_res_high.to_string(float_format="%.3f"))
 # Dispatch processed dual structures directly to the matrix plotting function.
 # ---------------------------------------------------------
 
-# Generate the 4x2 Matrix Plot showing High Visibility (Col 0) and Low Visibility (Col 1)
+# Generate the 4x2 or 1x2 matrix oplot showing High Visibility (Col 0) and Low Visibility (Col 1)
 fig, axs = vf.plot_multi_period_performance_matrix(
     results_high=matrix_results['high'],
     results_low=matrix_results['low'],
@@ -219,13 +219,13 @@ fig, axs = vf.plot_multi_period_performance_matrix(
 )
 plt.savefig("performance_matrix_full.pdf")
 
-# 2. Metrics Summary (example for entire period, considering both halves )
+# 2. Metrics summary (example for entire period, considering both halves )
 fig1, fig2 = vf.plot_metrics_summary(matrix_results["high"][0]["splits"]["Full"])
 fig1.suptitle("Windows of opportunity"); fig2.suptitle("Windows of opportunity")
 fig1, fig2 = vf.plot_metrics_summary(matrix_results["low"][0]["splits"]["Full"])
 fig1.suptitle("Low visibility events"); fig2.suptitle("Low visibility events")
 
-# 3. Ensemble Diagnostics
+# 3. Ensemble diagnostics
 vf.plot_reliability_diagram(prob_fog, taf_eval['obs_event'], n_bins=20)
 vf.plot_talagrand_histogram(ens_aligned, taf_eval['obs_vis'])
 

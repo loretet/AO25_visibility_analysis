@@ -119,7 +119,7 @@ def df_TAF_gen(taf_table, time_vec, debug):
             taf_duration = taf_end - taf_start
             midpoint = taf_start + taf_duration / 2
 
-            # First half includes midpoint
+            # first half includes midpoint
             df.loc[taf_start:midpoint, 'is_valid_first_half'] = True
             df.loc[midpoint:taf_end, 'is_valid_second_half'] = True
 
@@ -283,7 +283,7 @@ def plot_metrics_summary(metrics_df):
     fig2 : matplotlib.figure.Figure
         Figure containing bar plot of absolute hit, miss,false alarms and correct negatives counts.
     """
-    # 1. Plot Ratios (POD, FAR, CSI, Bias)
+    # 1. Plot ratios (POD, FAR, CSI, Bias)
     ratios = metrics_df[['POD', 'FAR', 'CSI', 'Bias']]
     fig1, ax1 = plt.subplots(figsize=(10, 5))
     ratios.plot(kind='bar', ax=ax1, rot=0, edgecolor='black', alpha=0.8)
@@ -292,7 +292,7 @@ def plot_metrics_summary(metrics_df):
     ax1.grid(axis='y', linestyle=':', alpha=0.6)
     ax1.set_xticklabels(ax1.get_xticklabels(), rotation=30, ha='right')
     
-    # 2. Plot Absolute Counts (Hits, Misses)
+    # 2. Plot absolute counts (Hits, Misses)
     counts = metrics_df[['Hits', 'Misses','False alarms','Correct negatives']]
     fig2, ax2 = plt.subplots(figsize=(10, 5))
     counts.plot(kind='bar', ax=ax2, rot=0, edgecolor='black', alpha=0.8,width=0.8)
@@ -339,7 +339,7 @@ def get_evaluation_library(model_dict, obs_series, fog_thresh, higher_than_fog_t
     # 2. Build the Event Library
     event_library = {}
     
-    # Add all numerical models
+    # 3. Add all numerical models
     for name, vis_series in model_dict.items():
         if higher_than_fog_thresh:
             event_library[name] = (vis_series > fog_thresh)
@@ -576,14 +576,55 @@ def calculate_ets(a, b, c, d):
 
 def plot_multi_period_performance_matrix(results_high, results_low, period_names, model_style_map, all_periods=True):
     """
-    Generates a performance diagram matrix matching an A4 page or a single 1x2 comparison.
+    Generates a structured performance diagram matrix in a unified geometric layout, 
+    comparing verification metrics for high-visibility and low-visibility forecast regimes.
+
+    The plot maps the joint behavior of the Probability of Detection (POD) and the Success 
+    Ratio (SR, or $1 - \text{FAR}$) onto a Roebber performance diagram. The background space 
+    is contoured by the Critical Success Index (CSI) defined as:
     
+    $$\text{CSI} = \left( \frac{1}{\text{SR}} + \frac{1}{\text{POD}} - 1 \right)^{-1}$$
+    
+    Dashed diagonal lines radiating from the origin indicate the Frequency Bias score ($B = \text{POD}/\text{SR}$).
+    Each model configuration or interpretive TAF variant is plotted as a lead-time skill trajectory 
+    tracking performance evolution from the first half of the forecast window ('A') to the full 
+    window, and finally to the second half ('B').
+
     Parameters
     ----------
+    results_high : list of dict
+        List containing nested evaluation metrics for the high-visibility threshold regime 
+        (e.g., windows of opportunity where visibility $> 0.8$ km). Each dictionary represents 
+        a distinct period and must strictly contain the following structural nesting:
+        `dict['splits'][split_name]` where `split_name` is 'Full', 'First_Half', or 'Second_Half', 
+        returning a pandas.DataFrame indexed by model/scenario name with columns ['POD', 'FAR'].
+    results_low : list of dict
+        List containing nested evaluation metrics for the low-visibility threshold regime 
+        (e.g., fog events where visibility $\le 0.8$ km). Must mirror the exact structure 
+        and period sequence of `results_high`.
+    period_names : list of str
+        Chronological titles or descriptors for each tracking period. The last item in this list 
+        is assumed to represent the integrated "Entire Cruise" evaluation window.
+    model_style_map : dict
+        Mapping registry where keys are string identities of the models/TAF interpretive choices 
+        (matching the DataFrame index names) and values are matplotlib-compatible color strings 
+        or hex codes.
     all_periods : bool, default=True
-        If True, plots a 4x2 matrix grid (Entire Period + 3 Sub-periods).
-        If False, plots a 1x2 row comparison containing only the "Entire Period".
+        Controls the grid geometry of the generated canvas:
+        - If True: Compiles a publication-ready vertical $4 \times 2$ matrix page. Row 0 tracks 
+          the "Entire Cruise" with reinforced black framing, while rows 1–3 track specific sub-periods.
+        - If False: Compiles a compact, horizontal $1 \times 2$ matrix panel containing exclusively 
+          the integrated "Entire Cruise" summary benchmarks.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        The initialized figure handle containing the formatted performance grid layout.
+    plot_axs : numpy.ndarray
+        A 2D array of matplotlib.axes.Axes objects containing only the verification plot panels, 
+        cleared of the trailing dedicated colorbar axis geometry.
     """
+    
     # Create markers for different data halves (Assumes get_text_marker is defined)
     my_marker_1 = get_text_marker("A")
     my_marker_2 = get_text_marker("B")
@@ -710,7 +751,6 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
                             t_ax.plot([pt_1st[0], pt_full[0], pt_2nd[0]], [pt_1st[1], pt_full[1], pt_2nd[1]], 
                                       color=color, linestyle='-', linewidth=1.2, alpha=0.4, zorder=3)
 
-            # Distinct Subplot Titles indicating column metrics
             col_suffix = " (Windows of opportunity)" if is_high_thresh_col else " (Low visibility events)"
             ax.set_title(f"{p_name}{col_suffix}", pad=20, fontweight='bold' if i == 0 else 'normal')
             
@@ -721,13 +761,13 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
             ax.set_xlim(-0.02, 1.02); ax.set_ylim(-0.02, 1.02)
             ax.grid(True, linestyle=':', alpha=0.4)
 
-    # 2. Dynamic Label Placement (Targets row edges dynamically)
+    # 2. Dynamic label placement
     for j in range(2):
         plot_axs[-1, j].set_xlabel('Success Ratio (1 - FAR)', fontsize=13)
     for i in range(n_rows):
         plot_axs[i, 0].set_ylabel('Probability of Detection (POD)', fontsize=13)
 
-    # 3. Consolidated Global Legend on Top Left Panel
+    # 3. CLegend
     legend_elements = []
     for l, c in model_style_map.items():
         mrkr = '*' if l == "Persist_10min" else 'o'
@@ -740,7 +780,6 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
     ])
     plot_axs[0, 0].legend(handles=legend_elements, frameon=True, loc='lower right', prop={'size': 8}, ncols=4)
 
-    # 4. Vertical Colorbars aligned cleanly in the 3rd column bounding boxes
     for i in range(n_rows):
         fig.colorbar(contour_mappable, cax=cbar_axs[i]).set_label('CSI', fontsize=10)
     
@@ -760,7 +799,7 @@ def draw_perf_background(ax, grid_data, line_w, line_alpha, contour_alpha, show_
     ax.add_patch(white_mask)
     
     # 1. Contour Fill
-    # Ensure zorder is higher than the mask (e.g., 6)
+    # Ensure zorder is higher than the mask (e.g., zord 6)
     mappable = ax.contourf(SR_grid, POD_grid, CSI, 
                            levels=np.arange(0, 1.1, 0.1), 
                            cmap='Greys', 
@@ -801,16 +840,15 @@ def draw_hatching(ax,alpha=1,borders=False):
     hatch_style = '///' 
     color = 'lightgray'
     
-    # Left buffer
+    # Left
     ax.axvspan(-0.1, 0, facecolor='none', hatch=hatch_style, edgecolor=color, zorder=1, alpha=alpha)
-    # Right buffer
+    # Right 
     ax.axvspan(1, 1.1, facecolor='none', hatch=hatch_style, edgecolor=color, zorder=1, alpha=alpha)
-    # Bottom buffer
+    # Bottom 
     ax.axhspan(-0.1, 0, facecolor='none', hatch=hatch_style, edgecolor=color, zorder=1, alpha=alpha)
-    # Top buffer
+    # Top 
     ax.axhspan(1, 1.1, facecolor='none', hatch=hatch_style, edgecolor=color, zorder=1, alpha=alpha)
 
-    # Lines marking [0,1] grid
     if borders:
         ax.plot([0, 1, 1, 0, 0], [0, 0, 1, 1, 0], color='black', linewidth=0.8, zorder=2,alpha=0.45)
 
@@ -1079,18 +1117,18 @@ def plot_ensemble_spaghetti(ens_xr, obs_series, start_t, end_t, fog_thresh):
         ax.plot(window_ens.time, window_ens.sel(number=i), 
                 color='gray', alpha=0.5, lw=0.5, zorder=1)
     
-    # Plot Observations
+    # obs
     ax.plot(window_obs.index, window_obs, 
             color='red', label='Observations', zorder=3)
 
-    # Plot Ensemble Median
+    # ens mediam
     ax.plot(window_ens.time, window_ens.median(dim='number'), 
             color='k',  label='Ensemble Median', zorder=2, lw=0.8)
     
-    # Fog Threshold Line
+    # fog threshold
     ax.axhline(fog_thresh, color='black', ls='--', alpha=0.6, label='Fog Threshold')
     
-    ax.set_ylim(0, 10.5) # Focus on the low-visibility range
+    ax.set_ylim(0, 10.5) 
     ax.set_ylabel('Visibility [km]')
     ax.set_title(f'Ensemble Spread vs. Observations ({start_t} to {end_t})')
     ax.legend()
@@ -1292,21 +1330,21 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, h
         3: {'bounds': [0.08, 0.15, 0.35, 0.46], 'xlim': [0.8,  1.0], 'ylim': [0.9, 1.0]}
     }
 
-    # Reorder layout sequence: Put entire period first and then three separate sub-periods
+    # Reorder layout sequence: entire period first
     reordered_results = [results_list[-1]] + results_list[:-1]
     reordered_periods = [period_names[-1]] + period_names[:-1]
 
     for i, (period_data, p_name) in enumerate(zip(reordered_results, reordered_periods)):
         ax = axs[i]
 
-        # Style first subplot panel with prominent borders
+        # Style first subplot panel
         if i == 0:
             for spine in ax.spines.values():
                 spine.set_linewidth(1.8)       
                 spine.set_color('black')       
                 spine.set_zorder(10)           
         
-        # Draw Main Panel Background
+        # Draw background
         contour_mappable = draw_perf_background(ax, grid_data, line_w=0.8, line_alpha=0.5, contour_alpha=0.2, show_text=True)
 
         # Generate Inset Axis if requested
@@ -1324,7 +1362,7 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, h
             draw_perf_background(ax_ins, grid_data, line_w=0.6, line_alpha=0.3, contour_alpha=0.15, show_text=False)
             target_axs.append(ax_ins)
 
-        # --- UNIFORM TRAJECTORY PLOTTING BLOCK ---
+        # --- UNIFORM TRAJECTORY (lines) PLOTTING BLOCK ---
         splits = period_data['splits']
         
         # Verify all necessary sub-period slices are verified in data structures
@@ -1350,41 +1388,36 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, h
                     sz = 180 if model_name == "Persist_10min" else 120
 
                     for t_ax in target_axs:
-                        # First Half Point (Leftward Triangle)
+                        # First Half 
                         t_ax.scatter(*pt_1st, s=sz, c=color, marker=my_marker_1, edgecolor='black', zorder=4, alpha=0.7)
                         
-                        # Second Half Point (Rightward Triangle)
+                        # Second Half  
                         t_ax.scatter(*pt_2nd, s=sz, c=color, marker=my_marker_2, edgecolor='black', zorder=4, alpha=0.3)
                         
-                        # Full Window Frame Point (Central Marker Circle/Star)
+                        # Full Window Frame 
                         t_ax.scatter(*pt_full, s=sz, c=color, marker=mrkr, edgecolor='black', zorder=5)
 
                         # Draw the evolution trajectory connection line
                         t_ax.plot([pt_1st[0], pt_full[0], pt_2nd[0]], [pt_1st[1], pt_full[1], pt_2nd[1]], 
                                   color=color, linestyle='-', linewidth=1.2, alpha=0.4, zorder=3)
 
-        # Labels, layout, and panel annotations
         ax.set_title(p_name, pad=20, fontweight='bold')
         ax.text(0.05, 0.95, f"{chr(97+i)})", transform=ax.transAxes, fontsize=14, fontweight='bold', 
                 va='top', bbox=dict(boxstyle="square,pad=0.3", facecolor="white", alpha=1))
         ax.set_xlim(0, 1); ax.set_ylim(0, 1)
         ax.grid(True, linestyle=':', alpha=0.4)
 
-    # 2. Global Grid Labels Configuration
     axs[2].set_xlabel('Success Ratio (1 - FAR)', fontsize=14)
     axs[3].set_xlabel('Success Ratio (1 - FAR)', fontsize=14)
     axs[0].set_ylabel('Probability of Detection (POD)', fontsize=14)
     axs[2].set_ylabel('Probability of Detection (POD)', fontsize=14)
 
-    # 3. Global Legend Reconstruction
     legend_elements = []
-    
-    # Track models and scenario colors
+        # Track models and scenario colors
     for l, c in model_style_map.items():
         mrkr = '*' if l == "Persist_10min" else 'o'
         legend_elements.append(Line2D([0], [0], color="none", markerfacecolor=c, label=l, marker=mrkr, markeredgecolor='black', markersize=10))
     
-    # Trace/Time evolution guides
     legend_elements.extend([
         Line2D([0], [0], color='none', marker=my_marker_1, markerfacecolor='gray', markeredgecolor='black', label='First Half Window', markersize=12, alpha=0.7),
         Line2D([0], [0], color='none', marker='o', markerfacecolor='gray', markeredgecolor='black', label='Full Window Metric', markersize=10),
