@@ -15,30 +15,31 @@ import numpy as np
 import xarray as xr
 import pandas as pd
 import matplotlib.pyplot as plt
-
 plt.rcParams['figure.dpi'] = 300
 
 #%% 1. CONFIGURATION AND REGISTRY
 # ---------------------------------------------------------
 # All parameters, paths, and metadata governing the analysis.
 # ---------------------------------------------------------
+RUN_DIR="/Users/lodo0477/Documents/PhD/Research/Visibility study"
 CONFIG = {
     'fog_thresh': 0.8,
-    'higher_than_fog_thresh': True,
+    'higher_than_fog_thresh': False,
     'model_24h': False,
     'start_date': '2025-08-12 00:00',
     'end_date': '2025-09-16 00:00',
     'time_res': 'h',
     'paths': {
-        'taf': '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/AO25_TAFs.xlsx',
-        'obs': '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/obs_data/AO2025_MDF_20250812-20250915_hourly_quantiles_10minmin.nc',
-        'ens': '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_ens_oden_2025-08-11_2025-09-15_vis_day2.nc'
+        'taf': f'{RUN_DIR}/AO25_TAFs.xlsx',
+        'obs': f'{RUN_DIR}/obs_data/AO2025_MDF_20250812-20250915_hourly_quantiles_10minmin.nc',
+        'ens': f'{RUN_DIR}/model_data/ifs_ens_oden_2025-08-11_2025-09-15_vis_day2.nc'
     },
     'obs_var': 'visas_10min'
 }
 
 PERIODS = [
     ('2025-08-12 00:00', '2025-08-16 12:00', 'Period 1'),
+    # ('2025-08-16 13:00', '2025-09-16 00:00', 'Period 2'),
     ('2025-08-16 13:00', '2025-09-03 00:00', 'Period 2'),
     ('2025-09-03 01:00', '2025-09-16 00:00', 'Period 3'),
     (CONFIG['start_date'], CONFIG['end_date'], 'Entire Cruise')
@@ -48,15 +49,15 @@ PERIODS = [
 # Types: 'det' (deterministic), 'pers' (persistence), 'ens_prob' (ensemble probability)
 MODEL_REGISTRY = {
     'IFS': {
-        'path': '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_oper_oden_20250811_20250915_day2_new_visibility_diagnostic_v1.nc',
+        'path': f'{RUN_DIR}/model_data/ifs_oper_oden_20250811_20250915_day2_new_visibility_diagnostic_v1.nc',
         'type': 'det', 'var': 'vis', 'color': 'blue'
     },
     'LowLvlMean': {
-        'path': '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/ifs_diagnostic_lowLvlMean.nc',
+        'path': f'{RUN_DIR}/model_data/ifs_diagnostic_lowLvlMean.nc',
         'type': 'det', 'var': 'vis', 'color': 'tab:blue'
     },
     'Persist_10min': {
-        'path': '/Users/lodo0477/Documents/PhD/Research/Oden/Visibility study/model_data/AO2025_20250812-20250915_persistence_forecast_v2.nc',
+        'path': f'{RUN_DIR}/model_data/AO2025_20250812-20250915_persistence_forecast_v2.nc',
         'type': 'pers', 'var': 'persistence10m_minimum', 'color': 'black'
     },
     'Ens_P20':    {'type': 'ens_prob', 'thresh': 0.20, 'color': 'darkgreen'},
@@ -187,21 +188,47 @@ for regime in ['high', 'low']:
         for split_name, current_mask in sub_periods.items():
             window_truth = truth.loc[current_mask]
             window_models = {k: v.loc[current_mask] for k, v in models_lib.items()}
-            period_splits[split_name] = vf.compute_all_metrics(window_truth, window_models)
+            
+            # Compute standard metrics dataframe (Rows: Models, Cols: POD, FAR, Hits, etc.)
+            metrics_df = vf.compute_all_metrics(window_truth, window_models)
+            
+            # Compute ETS for each row using the existing contingency values
+            metrics_df['ETS'] = metrics_df.apply(
+                lambda row: vf.calculate_ets(
+                    a=row['Hits'], 
+                    b=row['False alarms'], 
+                    c=row['Misses'], 
+                    d=row['Correct negatives']
+                ), 
+                axis=1
+            )
+            period_splits[split_name] = metrics_df
             
         matrix_results[regime].append({
             'period': p_name,
             'splits': period_splits
         })
 
-# Console output (Example: Entire Cruise, High-Vis) ---
+# High-Visibility Regime (enitre period)
+# Note: Inverting prob_fog to represent probability of visibility > threshold
 eval_mask_fc = (taf_eval.index >= CONFIG['start_date']) & (taf_eval.index <= CONFIG['end_date']) & mask_valid
-bs_ens = vf.compute_brier_score(prob_fog[eval_mask_fc], (taf_eval['obs_vis'] > CONFIG['fog_thresh'])[eval_mask_fc].astype(float))
+prob_clear = 1.0 - prob_fog
+obs_clear = (taf_eval['obs_vis'] > CONFIG['fog_thresh']).astype(float)
+bs_ens_high = vf.compute_brier_score(prob_clear[eval_mask_fc], obs_clear[eval_mask_fc])
 final_res_high = matrix_results['high'][-1]['splits']['Full']
-
-print("\n--- EVALUATION SUMMARY (ENTIRE CRUISE - HIGH VISIBILITY WINDOW) ---")
-print(f"Ensemble Brier score: {bs_ens:.4f}\n")
+print("\n=== EVALUATION SUMMARY (ENTIRE CRUISE - HIGH VISIBILITY WINDOW) ===")
+print(f"Ensemble Brier Score (Clear): {bs_ens_high:.4f}\n")
 print(final_res_high.to_string(float_format="%.3f"))
+print("-" * 67)
+
+# Low-Visibility Regime entire period)
+obs_fog = (taf_eval['obs_vis'] <= CONFIG['fog_thresh']).astype(float)
+bs_ens_low = vf.compute_brier_score(prob_fog[eval_mask_fc], obs_fog[eval_mask_fc])
+final_res_low = matrix_results['low'][-1]['splits']['Full']
+print("\n=== EVALUATION SUMMARY (ENTIRE CRUISE - LOW VISIBILITY WINDOW) ===")
+print(f"Ensemble Brier Score (Fog):   {bs_ens_low:.4f}\n")
+print(final_res_low.to_string(float_format="%.3f"))
+print("=" * 67)
 
 
 #%% 4. VISUALIZATION
@@ -217,12 +244,11 @@ fig, axs = vf.plot_multi_period_performance_matrix(
     model_style_map=MODEL_STYLE,
     all_periods=True
 )
-plt.savefig("performance_matrix_full.pdf")
 
-# 2. Metrics summary (example for entire period, considering both halves )
-fig1, fig2 = vf.plot_metrics_summary(matrix_results["high"][0]["splits"]["Full"])
+# 2. Metrics summary (example for entire period [3], considering both halves )
+fig1, fig2 = vf.plot_metrics_summary(matrix_results["high"][2]["splits"]["Full"])
 fig1.suptitle("Windows of opportunity"); fig2.suptitle("Windows of opportunity")
-fig1, fig2 = vf.plot_metrics_summary(matrix_results["low"][0]["splits"]["Full"])
+fig1, fig2 = vf.plot_metrics_summary(matrix_results["low"][2]["splits"]["Full"])
 fig1.suptitle("Low visibility events"); fig2.suptitle("Low visibility events")
 
 # 3. Ensemble diagnostics
@@ -230,4 +256,34 @@ vf.plot_reliability_diagram(prob_fog, taf_eval['obs_event'], n_bins=20)
 vf.plot_talagrand_histogram(ens_aligned, taf_eval['obs_vis'])
 
 #%%
+
+# 3. Flexible Visibility Summary Meteogram (New Integrated Function)
+# Programmatically parse only continuous/physical time series from the pipeline
+# Filter data to TAF validity times only (set to NaN outside validity window)
+vis_obs_filtered = vis_obs.copy()
+vis_obs_filtered[~(taf_eval['is_valid'] == True)] = np.nan
+
+meteo_filtered = {
+    'Observations': (vis_obs_filtered, 'crimson', '-', 2.0, "o")
+}
+for name, meta in MODEL_REGISTRY.items():
+    if meta['type'] in ['det', 'pers']:  # Filter out threshold step-functions
+        linestyle = '--' if meta['type'] == 'det' else ':'
+        if meta["type"]=='pers':
+            linestyle="-"
+        thick = 4 if meta['type'] == 'pers' else 1.5
+        model_series = model_data[name].copy()
+        model_series[~(taf_eval['is_valid'] == True)] = np.nan
+        meteo_filtered[name] = (model_series, meta['color'], linestyle, thick, None)
+
+# Call the profile summary over an interesting sub-window (e.g., Period 1)
+fig_met, ax_met = vf.plot_vis_summary(
+    df=taf_eval,
+    series_dict=meteo_filtered,
+    fog_thresh=CONFIG['fog_thresh'],
+    start_date='2025-08-31',
+    end_date='2025-09-15'
+)
+ax_met.set_title("Log-Scale Visibility Time Series Comparison (Sub-Window Test)", fontweight='bold')
+# %%
 

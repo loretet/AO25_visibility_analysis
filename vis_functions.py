@@ -235,10 +235,10 @@ def get_metrics(forecast_bool, obs_bool):
     c = (~f_bin & o_bin).sum()   # Miss
     d = (~f_bin & ~o_bin).sum()  # Correct Negative
     
-    pod = a / (a + c) if (a + c) > 0 else 0
-    far = b / (a + b) if (a + b) > 0 else 0
-    bias = (a + b) / (a + c) if (a + c) > 0 else 0
-    csi = a / (a + b + c) if (a + b + c) > 0 else 0
+    pod = a / (a + c) if (a + c) > 0 else np.nan
+    far = b / (a + b) if (a + b) > 0 else np.nan
+    bias = (a + b) / (a + c) if (a + c) > 0 else np.nan
+    csi = a / (a + b + c) if (a + b + c) > 0 else np.nan
     
     return {"POD": pod, "FAR": far, "Bias": bias, "CSI": csi, "Hits": a, "Misses": c, "False alarms": b, "Correct negatives" : d}
 
@@ -640,11 +640,11 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
     n_rows = 4 if all_periods else 1
 
     if all_periods:    
-        fig, axs = plt.subplots(4, 3, figsize=(17, 25), 
+        fig, axs = plt.subplots(n_rows, 3, figsize=(17, 25), 
                                 gridspec_kw={'width_ratios': [1, 1, 0.05]})
     else:
         # A 1x3 configuration preserves identical plot dimensions across both columns
-        fig, axs = plt.subplots(1, 3, figsize=(15, 6.5), 
+        fig, axs = plt.subplots(n_rows, 3, figsize=(15, 6.5), 
                                 gridspec_kw={'width_ratios': [1, 1, 0.05]})
         # Force 2D structure for uniform downstream indexing layout matching
         axs = axs.reshape(1, 3)
@@ -664,7 +664,7 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
     inset_configs_low = {
         0: {'bounds': None,                     'xlim': [0,0],         'ylim': [0,0]},
         1: {'bounds': [0.08, 0.15, 0.30, 0.70], 'xlim': [0.80,  1.02],  'ylim': [0.23, 0.75]},
-        2: {'bounds': [0.55, 0.15, 0.37, 0.64], 'xlim': [-0.015, 0.25],   'ylim': [-0.015, 0.5]},
+        2: {'bounds': [0.50, 0.20, 0.30, 0.70], 'xlim': [-0.015, 0.235],   'ylim': [-0.015, 0.46]},
         3: {'bounds': None,                     'xlim': [0,0],         'ylim': [0,0]}
     }
 
@@ -1213,27 +1213,33 @@ def plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, fog_thresh)
     plt.tight_layout()
     return fig,axs
 
-def plot_vis_summary(df, vis_obs, vis_mod1, vis_mod2, fog_thresh, start_date=None, end_date=None):
+def plot_vis_summary(df, series_dict, fog_thresh, start_date=None, end_date=None, 
+                     y_lim=(0.01, 10), show_taf_uncertainty=True, show_fog_threshold=True):
     """
-    Plots a log-scale time series comparison of TAF scenarios, 
-    model output, and observations.
+    Plots a log-scale time series comparison of visibility series (flexible, modular).
 
     Parameters
     ----------
     df : pd.DataFrame
         TAF DataFrame containing 'worst_vis', 'best_vis', 'main_scenario', and 'is_valid' columns.
-    vis_obs : pd.Series
-        Observed visibility time series (km).
-    vis_mod1 : pd.Series
-        First model visibility time series (km).
-    vis_mod2 : pd.Series
-        Second model visibility time series (km).
+    series_dict : dict
+        Dictionary mapping series names to tuples of (pd.Series, color, linestyle, linewidth, marker).
+        Example: {
+            'Observations': (vis_obs, 'crimson', '-', 2, None),
+            'IFS Model': (vis_mod1, 'blue', '--', 1.5, None),
+        }
     fog_thresh : float
         Visibility threshold for fog definition (km).
-    start_date : str or pd.Timestamp 
+    start_date : str or pd.Timestamp, optional
         Start date for the plot window. If None, uses full time range.
-    end_date : str or pd.Timestamp 
+    end_date : str or pd.Timestamp, optional
         End date for the plot window. If None, uses full time range.
+    y_lim : tuple, optional
+        Y-axis limits (min, max). Default is (0.04, 15).
+    show_taf_uncertainty : bool, optional
+        Whether to show TAF uncertainty band. Default is True.
+    show_fog_threshold : bool, optional
+        Whether to show fog threshold line. Default is True.
 
     Returns
     -------
@@ -1242,41 +1248,49 @@ def plot_vis_summary(df, vis_obs, vis_mod1, vis_mod2, fog_thresh, start_date=Non
     ax : matplotlib.axes.Axes
         Axes object for further customization.
     """
-    obs_series = vis_obs.reindex(df.index, method='nearest')
-    mod_series1 = vis_mod1.reindex(df.index, method='nearest')
-    mod_series2 = vis_mod2.reindex(df.index, method='nearest')
+    fig, ax = plt.subplots(figsize=(21, 7))
     
-    fig, ax = plt.subplots(figsize=(14, 7))
-    
+    # Time window selection
     if start_date and end_date:
         plot_df = df.loc[start_date:end_date]
-        plot_obs = obs_series.loc[start_date:end_date]
-        plot_mod1 = mod_series1.loc[start_date:end_date]
-        plot_mod2 = mod_series2.loc[start_date:end_date]
     else:
-        plot_df, plot_obs, plot_mod1, plot_mod2 = df, obs_series, mod_series1, mod_series2
-
-    ax.fill_between(plot_df.index, plot_df['worst_vis'], plot_df['best_vis'], 
-                    color='lightgray', alpha=0.5, label='TAF Uncertainty (TEMPO/PROB)')
-    ax.plot(plot_df.index, plot_df['main_scenario'], color='black', linewidth=1.2, 
-            label='TAF Main (Base/BECMG)', marker="o")
-    ax.plot(plot_df.index, plot_mod1, color='blue', linestyle='--', linewidth=1.5, 
-            label='IFS Oper. model')
-    # ax.plot(plot_df.index, plot_mod2, color='green', linestyle='--', linewidth=1.5, 
-    #         label='IFS lowLvlMean model')
-    ax.plot(plot_df.index, plot_obs, color='crimson', linewidth=2, label='Oden Observations')
-
+        plot_df = df
+    
+    # Plot TAF uncertainty band
+    if show_taf_uncertainty and 'worst_vis' in df.columns and 'best_vis' in df.columns:
+        ax.fill_between(plot_df.index, plot_df['worst_vis'], plot_df['best_vis'], 
+                        color='lightgray', alpha=0.5, label='TAF Uncertainty (TEMPO/PROB)')
+    
+    # Plot main scenario
+    if 'main_scenario' in df.columns:
+        ax.plot(plot_df.index, plot_df['main_scenario'], color='black', linewidth=1.2, 
+                label='TAF Main (Base/BECMG)')
+    
+    # Plot each series from series_dict
+    for series_name, (series, color, linestyle, linewidth, marker) in series_dict.items():
+        aligned_series = series.reindex(df.index, method='nearest')
+        plot_series = aligned_series.loc[plot_df.index]
+        ax.plot(plot_df.index, plot_series, color=color, linestyle=linestyle, 
+                linewidth=linewidth, label=series_name, marker=marker)
+    
+    # Formatting
     ax.set_yscale('log')
-    ax.set_ylim(0.04, 15)
+    ax.set_ylim(*y_lim)
     y_ticks = [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10]
     ax.set_yticks(y_ticks)
     ax.set_yticklabels([str(t) for t in y_ticks])
-    ax.axhline(y=fog_thresh, color='red', linestyle=':', alpha=0.5, label='Fog Threshold (0.8 km)')
+    
+    if show_fog_threshold:
+        ax.axhline(y=fog_thresh, color='red', linestyle=':', alpha=0.5, label='Fog Threshold (0.8 km)')
+    
     ax.set_ylabel('Visibility [km] (Log Scale)')
     ax.grid(True, which='both', linestyle='--', alpha=0.4)
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%d %b\n%H:%M'))
-    ax.fill_between(plot_df.index, 0, 1, where=~plot_df['is_valid'], 
-                    color='yellow', alpha=0.1, transform=ax.get_xaxis_transform(), label='No TAF')
+    
+    # Highlight invalid TAF periods
+    if 'is_valid' in df.columns:
+        ax.fill_between(plot_df.index, 0, 1, where=~plot_df['is_valid'], 
+                        color='yellow', alpha=0.1, transform=ax.get_xaxis_transform(), label='No TAF')
 
     ax.legend(loc='lower right', frameon=True, fontsize='small', ncol=2)
     plt.tight_layout()
