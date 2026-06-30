@@ -242,7 +242,8 @@ fig, axs = vf.plot_multi_period_performance_matrix(
     results_low=matrix_results['low'],
     period_names=[d[2] for d in PERIODS],
     model_style_map=MODEL_STYLE,
-    all_periods=True
+    all_periods=True,
+    insets=True
 )
 
 # 2. Metrics summary (example for entire period [3], considering both halves )
@@ -255,11 +256,7 @@ fig1.suptitle("Low visibility events"); fig2.suptitle("Low visibility events")
 vf.plot_reliability_diagram(prob_fog, taf_eval['obs_event'], n_bins=20)
 vf.plot_talagrand_histogram(ens_aligned, taf_eval['obs_vis'])
 
-#%%
-
-# 3. Flexible Visibility Summary Meteogram (New Integrated Function)
-# Programmatically parse only continuous/physical time series from the pipeline
-# Filter data to TAF validity times only (set to NaN outside validity window)
+# 4. Visibility summary
 vis_obs_filtered = vis_obs.copy()
 vis_obs_filtered[~(taf_eval['is_valid'] == True)] = np.nan
 
@@ -285,5 +282,5 @@ fig_met, ax_met = vf.plot_vis_summary(
     end_date='2025-09-15'
 )
 ax_met.set_title("Log-Scale Visibility Time Series Comparison (Sub-Window Test)", fontweight='bold')
-# %%
+
 

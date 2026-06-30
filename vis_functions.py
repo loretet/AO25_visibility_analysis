@@ -574,7 +574,7 @@ def calculate_ets(a, b, c, d):
     return ets
 
 
-def plot_multi_period_performance_matrix(results_high, results_low, period_names, model_style_map, all_periods=True):
+def plot_multi_period_performance_matrix(results_high, results_low, period_names, model_style_map, all_periods=True, insets=True):
     """
     Generates a structured performance diagram matrix in a unified geometric layout, 
     comparing verification metrics for high-visibility and low-visibility forecast regimes.
@@ -615,6 +615,8 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
           the "Entire Cruise" with reinforced black framing, while rows 1–3 track specific sub-periods.
         - If False: Compiles a compact, horizontal $1 \times 2$ matrix panel containing exclusively 
           the integrated "Entire Cruise" summary benchmarks.
+    insets : bool, default=True
+        Controls whether to plot insets in the subplots or not.
 
     Returns
     -------
