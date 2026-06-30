@@ -704,24 +704,25 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
             draw_hatching(ax, alpha=0.7, borders=True)
             cfg = inset_configs_high[i] if is_high_thresh_col else inset_configs_low[i]
             
-            if cfg["bounds"] is not None:
-                ax_ins = ax.inset_axes(cfg['bounds'])
-                ax_ins.set_xlim(cfg['xlim'])
-                ax_ins.set_ylim(cfg['ylim'])
-                ax_ins.set_aspect('auto')
-                
-                if cfg['bounds'][2] > cfg['bounds'][2] * 2 or cfg['bounds'][2] < cfg['bounds'][2] / 2:
-                    ax_ins.xaxis.set_major_locator(MaxNLocator(nbins=4))
-                    ax_ins.yaxis.set_major_locator(MaxNLocator(nbins=3))
-                else: 
-                    ax_ins.xaxis.set_major_locator(MaxNLocator(nbins=4))
-                    ax_ins.yaxis.set_major_locator(MaxNLocator(nbins=4))
+            if insets:
+                if cfg["bounds"] is not None:
+                    ax_ins = ax.inset_axes(cfg['bounds'])
+                    ax_ins.set_xlim(cfg['xlim'])
+                    ax_ins.set_ylim(cfg['ylim'])
+                    ax_ins.set_aspect('auto')
                     
-                ax_ins.tick_params(axis='both', which='major', labelsize=8)
-                draw_hatching(ax_ins)
-                draw_perf_background(ax_ins, grid_data, line_w=0.6, line_alpha=0.3, contour_alpha=0.15, show_text=False)
-                target_axs.append(ax_ins)
-                ax.indicate_inset_zoom(ax_ins, edgecolor="grey", alpha=1, lw=0.7)
+                    if cfg['bounds'][2] > cfg['bounds'][2] * 2 or cfg['bounds'][2] < cfg['bounds'][2] / 2:
+                        ax_ins.xaxis.set_major_locator(MaxNLocator(nbins=4))
+                        ax_ins.yaxis.set_major_locator(MaxNLocator(nbins=3))
+                    else: 
+                        ax_ins.xaxis.set_major_locator(MaxNLocator(nbins=4))
+                        ax_ins.yaxis.set_major_locator(MaxNLocator(nbins=4))
+                        
+                    ax_ins.tick_params(axis='both', which='major', labelsize=8)
+                    draw_hatching(ax_ins)
+                    draw_perf_background(ax_ins, grid_data, line_w=0.6, line_alpha=0.3, contour_alpha=0.15, show_text=False)
+                    target_axs.append(ax_ins)
+                    ax.indicate_inset_zoom(ax_ins, edgecolor="grey", alpha=1, lw=0.7)
 
             # --- UNIFORM TRAJECTORY PLOTTING BLOCK ---
             if all(k in splits for k in ['Full', 'First_Half', 'Second_Half']):
