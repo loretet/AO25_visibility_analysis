@@ -574,7 +574,7 @@ def calculate_ets(a, b, c, d):
     return ets
 
 
-def plot_multi_period_performance_matrix(results_high, results_low, period_names, model_style_map, all_periods=True):
+def plot_multi_period_performance_matrix(results_high, results_low, period_names, model_style_map, all_periods=True, insets=True):
     """
     Generates a structured performance diagram matrix in a unified geometric layout, 
     comparing verification metrics for high-visibility and low-visibility forecast regimes.
@@ -615,6 +615,8 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
           the "Entire Cruise" with reinforced black framing, while rows 1–3 track specific sub-periods.
         - If False: Compiles a compact, horizontal $1 \times 2$ matrix panel containing exclusively 
           the integrated "Entire Cruise" summary benchmarks.
+    insets : bool, default=True
+        Controls whether to plot insets in the subplots or not.
 
     Returns
     -------
@@ -701,25 +703,25 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
             target_axs = [ax]
             draw_hatching(ax, alpha=0.7, borders=True)
             cfg = inset_configs_high[i] if is_high_thresh_col else inset_configs_low[i]
-            
-            if cfg["bounds"] is not None:
-                ax_ins = ax.inset_axes(cfg['bounds'])
-                ax_ins.set_xlim(cfg['xlim'])
-                ax_ins.set_ylim(cfg['ylim'])
-                ax_ins.set_aspect('auto')
-                
-                if cfg['bounds'][2] > cfg['bounds'][2] * 2 or cfg['bounds'][2] < cfg['bounds'][2] / 2:
-                    ax_ins.xaxis.set_major_locator(MaxNLocator(nbins=4))
-                    ax_ins.yaxis.set_major_locator(MaxNLocator(nbins=3))
-                else: 
-                    ax_ins.xaxis.set_major_locator(MaxNLocator(nbins=4))
-                    ax_ins.yaxis.set_major_locator(MaxNLocator(nbins=4))
+            if insets:
+                if cfg["bounds"] is not None:
+                    ax_ins = ax.inset_axes(cfg['bounds'])
+                    ax_ins.set_xlim(cfg['xlim'])
+                    ax_ins.set_ylim(cfg['ylim'])
+                    ax_ins.set_aspect('auto')
                     
-                ax_ins.tick_params(axis='both', which='major', labelsize=8)
-                draw_hatching(ax_ins)
-                draw_perf_background(ax_ins, grid_data, line_w=0.6, line_alpha=0.3, contour_alpha=0.15, show_text=False)
-                target_axs.append(ax_ins)
-                ax.indicate_inset_zoom(ax_ins, edgecolor="grey", alpha=1, lw=0.7)
+                    if cfg['bounds'][2] > cfg['bounds'][2] * 2 or cfg['bounds'][2] < cfg['bounds'][2] / 2:
+                        ax_ins.xaxis.set_major_locator(MaxNLocator(nbins=4))
+                        ax_ins.yaxis.set_major_locator(MaxNLocator(nbins=3))
+                    else: 
+                        ax_ins.xaxis.set_major_locator(MaxNLocator(nbins=4))
+                        ax_ins.yaxis.set_major_locator(MaxNLocator(nbins=4))
+                        
+                    ax_ins.tick_params(axis='both', which='major', labelsize=8)
+                    draw_hatching(ax_ins)
+                    draw_perf_background(ax_ins, grid_data, line_w=0.6, line_alpha=0.3, contour_alpha=0.15, show_text=False)
+                    target_axs.append(ax_ins)
+                    ax.indicate_inset_zoom(ax_ins, edgecolor="grey", alpha=1, lw=0.7)
 
             # --- UNIFORM TRAJECTORY PLOTTING BLOCK ---
             if all(k in splits for k in ['Full', 'First_Half', 'Second_Half']):
