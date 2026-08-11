@@ -703,7 +703,6 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
             target_axs = [ax]
             draw_hatching(ax, alpha=0.7, borders=True)
             cfg = inset_configs_high[i] if is_high_thresh_col else inset_configs_low[i]
-            
             if insets:
                 if cfg["bounds"] is not None:
                     ax_ins = ax.inset_axes(cfg['bounds'])
