@@ -242,7 +242,8 @@ fig, axs = vf.plot_multi_period_performance_matrix(
     results_low=matrix_results['low'],
     period_names=[d[2] for d in PERIODS],
     model_style_map=MODEL_STYLE,
-    all_periods=True
+    all_periods=True,
+    insets=False
 )
 
 # 2. Metrics summary (example for entire period [3], considering both halves )
@@ -257,7 +258,7 @@ vf.plot_talagrand_histogram(ens_aligned, taf_eval['obs_vis'])
 
 #%%
 
-# 3. Flexible Visibility Summary Meteogram (New Integrated Function)
+# 3. Flexible Visibility Summary Meteogram 
 # Programmatically parse only continuous/physical time series from the pipeline
 # Filter data to TAF validity times only (set to NaN outside validity window)
 vis_obs_filtered = vis_obs.copy()
