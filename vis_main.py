@@ -61,10 +61,10 @@ MODEL_REGISTRY = {
         'type': 'pers', 'var': 'persistence10m_minimum', 'color': 'black'
     },
     'Ens_P20':    {'type': 'ens_prob', 'thresh': 0.20, 'color': 'darkgreen'},
-    'Ens_P50':    {'type': 'ens_prob', 'thresh': 0.50, 'color': 'tab:green'},
+    'Ens_Median':    {'type': 'ens_prob', 'thresh': 0.50, 'color': 'tab:green'},
     'Ens_P80':    {'type': 'ens_prob', 'thresh': 0.80, 'color': 'lightgreen'}
-}
-
+}  # for high visibility, P20 is optimistic ("as long as 20% of memebrs say it's clear, then it's clear.")
+   # on the other had, for low visibility it is pessimistic ("when even as low as 20% of memebrs say it's foggy, then it's foggy.")
 FC_STYLES = {
     'base':         {'color': 'red',     'label': 'TAF (Base)'},
     'conservative': {'color': 'red',     'label': 'TAF ("Any")'},
@@ -243,7 +243,7 @@ fig, axs = vf.plot_multi_period_performance_matrix(
     period_names=[d[2] for d in PERIODS],
     model_style_map=MODEL_STYLE,
     all_periods=True,
-    insets=False
+    insets=True,
 )
 
 # 2. Metrics summary (example for entire period [3], considering both halves )
@@ -288,3 +288,4 @@ fig_met, ax_met = vf.plot_vis_summary(
 ax_met.set_title("Log-Scale Visibility Time Series Comparison (Sub-Window Test)", fontweight='bold')
 
 
+#%%
