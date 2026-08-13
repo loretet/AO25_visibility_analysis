@@ -646,7 +646,7 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
                                 gridspec_kw={'width_ratios': [1, 1, 0.05]})
     else:
         # A 1x3 configuration preserves identical plot dimensions across both columns
-        fig, axs = plt.subplots(n_rows, 3, figsize=(15, 6.5), 
+        fig, axs = plt.subplots(n_rows, 3, figsize=(17, 7), 
                                 gridspec_kw={'width_ratios': [1, 1, 0.05]})
         # Force 2D structure for uniform downstream indexing layout matching
         axs = axs.reshape(1, 3)
@@ -682,6 +682,7 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
 
     data_sources = [reordered_high, reordered_low]
 
+    legend_elements = []
     for i, p_name in enumerate(reordered_periods):
         for j in range(2):
             ax = plot_axs[i, j]
@@ -742,6 +743,22 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
                         mrkr = "*" if model_name == "Persist_10min" else "o"
                         sz = 180 if model_name == "Persist_10min" else 120
 
+                        if is_high_thresh_col:
+                            # Divide "Pessimistic" and "optimistic" based on windows of oppportunity or low vis
+                            if model_name == "Ens_P20":
+                                color = model_style_map["Ens_P80"]
+                                model_name = "Ens_Optimistic"
+                            elif model_name == "Ens_P80":
+                                color = model_style_map["Ens_P20"]
+                                model_name = "Ens_Pessimistic"
+                        else:
+                            if model_name == "Ens_P20":
+                                color = model_style_map["Ens_P20"]
+                                model_name = "Ens_Pessimistic"
+                            elif model_name == "Ens_P80":
+                                color = model_style_map["Ens_P80"]
+                                model_name = "Ens_Optimistic"
+
                         for t_ax in target_axs:
                             t_ax.scatter(*pt_1st, s=sz*2.2, c=color, marker=my_marker_1, edgecolor=color, zorder=4, alpha=0.7)
                             t_ax.scatter(*pt_1st, s=sz*0.05, c=color, marker="o", edgecolor=color, zorder=4, alpha=0.35)
@@ -752,6 +769,10 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
                             t_ax.scatter(*pt_full, s=sz, c=color, marker=mrkr, edgecolor='black', zorder=5, alpha=0.8)
                             t_ax.plot([pt_1st[0], pt_full[0], pt_2nd[0]], [pt_1st[1], pt_full[1], pt_2nd[1]], 
                                       color=color, linestyle='-', linewidth=1.2, alpha=0.4, zorder=3)
+                    # Legend
+                    if j==0 and i==0:
+                        mrkr = '*' if model_name == "Persist_10min" else 'o'
+                        legend_elements.append(Line2D([0], [0], color="none", markerfacecolor=color, label=model_name, marker=mrkr, markeredgecolor='black', markersize=10))
 
             col_suffix = " (Windows of opportunity)" if is_high_thresh_col else " (Low visibility events)"
             ax.set_title(f"{p_name}{col_suffix}", pad=20, fontweight='bold' if i == 0 else 'normal')
@@ -768,13 +789,7 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
         plot_axs[-1, j].set_xlabel('Success Ratio (1 - FAR)', fontsize=13)
     for i in range(n_rows):
         plot_axs[i, 0].set_ylabel('Probability of Detection (POD)', fontsize=13)
-
-    # 3. CLegend
-    legend_elements = []
-    for l, c in model_style_map.items():
-        mrkr = '*' if l == "Persist_10min" else 'o'
-        legend_elements.append(Line2D([0], [0], color="none", markerfacecolor=c, label=l, marker=mrkr, markeredgecolor='black', markersize=10))
-    
+            
     legend_elements.extend([
         Line2D([0], [0], color='none', marker='o', markerfacecolor='white', markeredgecolor='black', label='Full Window Metric', markersize=10),
         Line2D([0], [0], color='none', marker=my_marker_1, markerfacecolor='white', markeredgecolor='black', label='First Half Window (A)', markersize=11, alpha=1),
