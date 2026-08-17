@@ -574,7 +574,7 @@ def calculate_ets(a, b, c, d):
     return ets
 
 
-def plot_multi_period_performance_matrix(results_high, results_low, period_names, model_style_map, all_periods=True, insets=True):
+def plot_multi_period_performance_matrix(results_high, results_low, period_names, model_style_map, all_periods=True, insets=True, plot_halves=True):
     """
     Generates a structured performance diagram matrix in a unified geometric layout, 
     comparing verification metrics for high-visibility and low-visibility forecast regimes.
@@ -612,11 +612,13 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
     all_periods : bool, default=True
         Controls the grid geometry of the generated canvas:
         - If True: Compiles a publication-ready vertical $4 \times 2$ matrix page. Row 0 tracks 
-          the "Entire Cruise" with reinforced black framing, while rows 1–3 track specific sub-periods.
+          the "Entire Cruise" with reinforced black framing, while rows 1-3 track specific sub-periods.
         - If False: Compiles a compact, horizontal $1 \times 2$ matrix panel containing exclusively 
           the integrated "Entire Cruise" summary benchmarks.
     insets : bool, default=True
         Controls whether to plot insets in the subplots or not.
+    plot_halves : bool, default=True
+        Controls whether to plot 1st/2nd halves for each periods or not (markers "A" and "B")
 
     Returns
     -------
@@ -760,14 +762,15 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
                                 model_name = "Ens_Optimistic"
 
                         for t_ax in target_axs:
-                            t_ax.scatter(*pt_1st, s=sz*2.2, c=color, marker=my_marker_1, edgecolor=color, zorder=4, alpha=0.7)
-                            t_ax.scatter(*pt_1st, s=sz*0.05, c=color, marker="o", edgecolor=color, zorder=4, alpha=0.35)
-                            
-                            t_ax.scatter(*pt_2nd, s=sz*2.2, c=color, marker=my_marker_2, edgecolor=color, zorder=4, alpha=0.7)
-                            t_ax.scatter(*pt_2nd, s=sz*0.05, c=color, marker="o", edgecolor=color, zorder=4, alpha=0.35)
-                            
                             t_ax.scatter(*pt_full, s=sz, c=color, marker=mrkr, edgecolor='black', zorder=5, alpha=0.8)
-                            t_ax.plot([pt_1st[0], pt_full[0], pt_2nd[0]], [pt_1st[1], pt_full[1], pt_2nd[1]], 
+                            if plot_halves:
+                                t_ax.scatter(*pt_1st, s=sz*2.2, c=color, marker=my_marker_1, edgecolor=color, zorder=4, alpha=0.7)
+                                t_ax.scatter(*pt_1st, s=sz*0.05, c=color, marker="o", edgecolor=color, zorder=4, alpha=0.35)
+                                
+                                t_ax.scatter(*pt_2nd, s=sz*2.2, c=color, marker=my_marker_2, edgecolor=color, zorder=4, alpha=0.7)
+                                t_ax.scatter(*pt_2nd, s=sz*0.05, c=color, marker="o", edgecolor=color, zorder=4, alpha=0.35)
+                                
+                                t_ax.plot([pt_1st[0], pt_full[0], pt_2nd[0]], [pt_1st[1], pt_full[1], pt_2nd[1]], 
                                       color=color, linestyle='-', linewidth=1.2, alpha=0.4, zorder=3)
                     # Legend
                     if j==0 and i==0:
@@ -789,12 +792,17 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
         plot_axs[-1, j].set_xlabel('Success Ratio (1 - FAR)', fontsize=13)
     for i in range(n_rows):
         plot_axs[i, 0].set_ylabel('Probability of Detection (POD)', fontsize=13)
-            
-    legend_elements.extend([
-        Line2D([0], [0], color='none', marker='o', markerfacecolor='white', markeredgecolor='black', label='Full Window Metric', markersize=10),
-        Line2D([0], [0], color='none', marker=my_marker_1, markerfacecolor='white', markeredgecolor='black', label='First Half Window (A)', markersize=11, alpha=1),
-        Line2D([0], [0], color='none', marker=my_marker_2, markerfacecolor='white', markeredgecolor='black', label='Second Half Window (B)', markersize=11, alpha=1),
-    ])
+
+    if plot_halves:
+        legend_elements.extend([
+            Line2D([0], [0], color='none', marker='o', markerfacecolor='white', markeredgecolor='black', label='Full Window Metric', markersize=10),
+            Line2D([0], [0], color='none', marker=my_marker_1, markerfacecolor='white', markeredgecolor='black', label='First Half Window (A)', markersize=11, alpha=1),
+            Line2D([0], [0], color='none', marker=my_marker_2, markerfacecolor='white', markeredgecolor='black', label='Second Half Window (B)', markersize=11, alpha=1),
+        ])
+    else:
+        legend_elements.extend([
+                    Line2D([0], [0], color='none', marker='o', markerfacecolor='white', markeredgecolor='black', label='Full Window Metric', markersize=10),
+                ])
     plot_axs[0, 0].legend(handles=legend_elements, frameon=True, loc='lower right', prop={'size': 8}, ncols=4)
 
     for i in range(n_rows):
@@ -1466,3 +1474,433 @@ def plot_multi_period_performance(results_list, period_names, model_style_map, h
 
     plt.tight_layout()
     return fig, axs
+
+def compute_seeps_visibility(obs, forecasts, thresholds_km = (0.8, 5.0),  climatology_obs = None):
+    """
+    Comptue a three-category SEEPS score for visibility.
+
+    Visibility categories
+    ---------------------
+    Category 1 : V <= threshold_1
+    Category 2 : threshold_1 < V <= threshold_2
+    Category 3 : V > threshold_2
+
+    Parameters
+    ----------
+    obs : pd.Series
+        Observed visibility in km.
+
+    forecasts : dict[str, pd.Series]
+        Dictionary containing deterministic visibility forecasts in km.
+
+    thresholds_km : tuple(float, float), optional
+        Lower and upper visibility thresholds in km.
+        Default is (0.8, 2.0).
+
+    climatology_obs : pd.Series, optional
+        Observations used to estimate the climatological probabilities
+        p1, p2 and p3 entering the SEEPS scoring matrix as in Rodwell et al.'s paper.
+
+        If None, "obs" itself is used.
+
+        For comparisons between multiple verification periods, it is
+        preferable to pass the SAME climatology_obs to all calls so that
+        every period uses the same SEEPS scoring matrix.
+
+    Returns
+    -------
+    results : pd.DataFrame
+        One row per forecast, with columns:
+        - SEEPS_error
+        - SEEPS_skill
+        - N
+        - p1
+        - p2
+        - p3
+    score_matrix : np.ndarray, shape (3, 3)
+        SEEPS error matrix. Rows correspond to forecast categories and
+        columns to observed categories.
+    category_probabilities : pd.Series
+        Climatological probabilities p1,p2 and p3.
+    """
+
+    # Converts obs to pandas series
+    if not isinstance(obs, pd.Series):
+        obs = pd.Series(obs)
+    if climatology_obs is None:
+        climatology_obs = obs.dropna().astype(float)
+
+    # Get and check thresholds
+    thresh_1, thresh_2 = thresholds_km
+    if thresh_1>=thresh_2:
+        raise ValueError(f"Expected threshold_1 < threshold_2, received {thresh_1} >= {thresh_2}.")
+
+    # Estimate climatological category probabilities
+    p1 = np.mean(climatology_obs <= thresh_1)
+    p2 = np.mean((climatology_obs > thresh_1) & (climatology_obs <= thresh_2))
+    p3 = np.mean(climatology_obs > thresh_2)
+
+    probabilities = pd.Series(
+        {
+            "p1": p1,
+            "p2": p2,
+            "p3": p3,
+        },
+        name="climatological_probability",
+    )
+
+    # Eq. (15) from Rodwell et al. contains 1/p1, 1/(1-p1), 1/p3, 1/(1-p3).
+    # So add check for matrix singularity
+    if min(p1, p3, 1.0 - p1, 1.0 - p3) < 0.05:
+        print("One SEEPS climatological probability is close to a ")
+        print("singular limit. Off-diagonal penalties may become very large. ")
+        print(f"p1={p1:.3f}, p2={p2:.3f}, p3={p3:.3f}")
+
+    # Then compute score matrix itself
+    # Rows    -> forecast category
+    # Columns -> observed category
+    score_matrix = 0.5 * np.array(
+        [
+            [
+                0.0,
+                1.0 / (1.0 - p1),
+                1.0 / p3 + 1.0 / (1.0 - p1),
+            ],
+            [
+                1.0 / p1,
+                0.0,
+                1.0 / p3,
+            ],
+            [
+                1.0 / p1 + 1.0 / (1.0 - p3),
+                1.0 / (1.0 - p3),
+                0.0,
+            ],
+        ],  # it's a cost-error (or "penalty") matrix
+        dtype=float,
+    )
+
+    # Internal category mapping
+    #     0 -> low visibility
+    #     1 -> intermediate visibility
+    #     2 -> high visibility
+    def visibility_category(values):
+        return np.select(
+            [
+                values <= thresh_1,
+                (values > thresh_1) & (values <= thresh_2),
+                values > thresh_2,
+            ],
+            [
+                0,
+                1,
+                2,
+            ],
+            default=-1,
+        ).astype(int)
+
+    # Actual scoritng of the different forecasts
+    results = {}
+    for model_name, forecast in forecasts.items():
+        if not isinstance(forecast, pd.Series):
+            forecast = pd.Series(forecast, index=obs.index)
+
+        # Explicit timestamp alignment
+        comparison = pd.concat(
+            [
+                obs.rename("obs"),  # change names for columns in the resulting dataframe
+                forecast.rename("forecast"),
+            ],
+            axis=1, # match by putting them side by side in two columns, matching indices
+            join="inner",
+        ).dropna()  # 2-column DataFrame containing (valid) temporally-matched forecast-observation pairs
+
+        n_valid = len(comparison)
+
+        obs_category = visibility_category(comparison["obs"].values)
+        forecast_category = visibility_category(comparison["forecast"].values)
+
+        # score_matrix.shape       = (3, 3)
+        # forecast_category.shape  = (N,)
+        # obs_category.shape      = (N,)
+        # individual_errors.shape  = (N,)
+        individual_errors = score_matrix[
+            forecast_category,
+            obs_category,
+        ]  # for every N verification time, advanced indexing gives one element of the 3x3 SEEPS matrix
+
+        seeps_error = np.mean(individual_errors)
+        seeps_skill = 1.0 - seeps_error
+
+        results[model_name] = {
+            "SEEPS_error": seeps_error,
+            "SEEPS_skill": seeps_skill,
+            "N": n_valid,
+            "p1": p1,
+            "p2": p2,
+            "p3": p3,
+        }
+
+    results = pd.DataFrame.from_dict(results, orient="index")
+
+    return results, score_matrix, probabilities
+
+
+def plot_seeps_skill(
+    skill_table,
+    thresholds_km=(0.8, 2.0),
+    model_style_map=None,
+    constant_models=None,
+    title=None,
+    highlight_period="Entire Cruise",
+    periods_to_plot=None
+):
+    """
+    Plot multi-model SEEPS skill scores across verification periods.
+
+    Parameters
+    ----------
+    skill_table : pd.DataFrame
+        Rows are verification periods and columns are forecast/model names.
+        Values are SEEPS skill scores.
+
+    thresholds_km : tuple(float, float), optional
+        Visibility category thresholds in km.
+
+    model_style_map : dict, optional
+        Mapping ``model_name -> matplotlib color``.
+
+    constant_models : iterable[str], optional
+        Names of constant-category baseline forecasts. These receive
+        hatch patterns and black edges so that they are visually distinct
+        from the physical forecast systems.
+
+    title : str, optional
+        Figure title.
+
+    highlight_period : str or None, optional
+        Name of the period to shade in the background.
+    
+    periods_to_plot : str or None, optional
+        Which periods to plot. If None, plot all
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+    ax : matplotlib.axes.Axes
+    """
+
+    if not isinstance(skill_table, pd.DataFrame):
+        raise TypeError("skill_table must be a pandas DataFrame.")
+
+    if skill_table.empty:
+        raise ValueError("skill_table is empty.")
+
+    # Optionally, only plot certain periods
+    if periods_to_plot is not None:
+        missing_periods = [
+            period
+            for period in periods_to_plot
+            if period not in skill_table.index
+        ]
+        if missing_periods:
+            raise ValueError(
+                "Requested periods are not present in skill_table: "
+                f"{missing_periods}"
+            )
+        skill_table = skill_table.loc[periods_to_plot]
+
+    thresh_1, thresh_2 = thresholds_km
+
+    model_style_map = (
+        {} if model_style_map is None else model_style_map.copy()
+    )
+
+    constant_models = (
+        set() if constant_models is None else set(constant_models)
+    )
+
+    period_names = list(skill_table.index)
+    model_names = list(skill_table.columns)
+
+    n_periods = len(period_names)
+    n_models = len(model_names)
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+
+    group_x = np.arange(n_periods)
+
+    total_group_width = 0.82
+    bar_width = total_group_width / max(n_models, 1)
+
+    offsets = (
+        np.arange(n_models) - (n_models - 1) / 2.0
+    ) * bar_width
+
+    hatch_cycle = ["///", "\\\\\\", "xx", "..", "++"]
+    constant_counter = 0
+
+    # -------------------------------------------------------------
+    # Background highlight for requested period
+    # -------------------------------------------------------------
+    if (
+        highlight_period is not None
+        and highlight_period in period_names
+    ):
+        idx = period_names.index(highlight_period)
+
+        ax.axvspan(
+            idx - 0.5,
+            idx + 0.5,
+            color="yellow",
+            alpha=0.18,
+            zorder=0,
+        )
+
+    # -------------------------------------------------------------
+    # Bars
+    # -------------------------------------------------------------
+    for model_idx, model_name in enumerate(model_names):
+
+        values = skill_table[model_name].values.astype(float)
+
+        color = model_style_map.get(model_name, None)
+
+        bar_kwargs = {
+            "x": group_x + offsets[model_idx],
+            "height": values,
+            "width": bar_width * 0.92,
+            "label": model_name,
+            "zorder": 3,
+        }
+
+        if color is not None:
+            bar_kwargs["color"] = color
+
+        if model_name in constant_models:
+            bar_kwargs["edgecolor"] = "black"
+            bar_kwargs["linewidth"] = 1.2
+            bar_kwargs["hatch"] = hatch_cycle[
+                constant_counter % len(hatch_cycle)
+            ]
+            constant_counter += 1
+
+        ax.bar(**bar_kwargs)
+
+    # -------------------------------------------------------------
+    # Reference scores
+    # -------------------------------------------------------------
+    ax.axhline(
+        0.0,
+        color="crimson",
+        linestyle="--",
+        linewidth=1.6,
+        label="Climatology / Unskilled (Skill = 0)",
+        zorder=2,
+    )
+
+    ax.axhline(
+        1.0,
+        color="black",
+        linestyle="-",
+        linewidth=1.3,
+        label="Perfect Forecast (Skill = 1)",
+        zorder=2,
+    )
+
+    # -------------------------------------------------------------
+    # Axis limits
+    #
+    # SEEPS skill has an upper bound of 1 but is not bounded at -1.
+    # -------------------------------------------------------------
+    finite_values = skill_table.to_numpy(dtype=float)
+    finite_values = finite_values[np.isfinite(finite_values)]
+
+    if len(finite_values) > 0:
+        data_min = finite_values.min()
+    else:
+        data_min = 0.0
+
+    lower_limit = min(-0.1, data_min - 0.10)
+    upper_limit = 1.10
+
+    ax.set_ylim(lower_limit, upper_limit)
+
+    # -------------------------------------------------------------
+    # Labels and formatting
+    # -------------------------------------------------------------
+    ax.set_xticks(group_x)
+    ax.set_xticklabels(
+        period_names,
+        fontsize=11,
+        fontweight="bold",
+    )
+
+    ax.set_ylabel(
+        "SEEPS Skill Score",
+        fontsize=12,
+        fontweight="bold",
+    )
+
+    ax.set_xlabel(
+        "Verification Evaluation Window",
+        fontsize=12,
+        fontweight="bold",
+    )
+
+    if title is None:
+        title = (
+            "Multi-Model Visibility SEEPS Skill Score "
+            "Across Operational Windows"
+        )
+
+    ax.set_title(
+        title,
+        fontsize=15,
+        fontweight="bold",
+        pad=14,
+    )
+
+    ax.grid(
+        axis="y",
+        linestyle=":",
+        alpha=0.35,
+        zorder=1,
+    )
+
+    ax.text(
+        0.02,
+        0.95,
+        "↑ Higher Value (Higher Skill)",
+        transform=ax.transAxes,
+        fontsize=10,
+        fontstyle="italic",
+        va="top",
+    )
+
+    thresholds_text = (
+        "Visibility thresholds:\n"
+        f"{thresh_1 * 1000:.0f} m, {thresh_2 * 1000:.0f} m"
+    )
+
+    ax.text(
+        1.03,
+        0.38,
+        thresholds_text,
+        transform=ax.transAxes,
+        fontsize=13,
+        va="center",
+        ha="left",
+    )
+
+    ax.legend(
+        loc="upper left",
+        bbox_to_anchor=(1.02, 1.0),
+        frameon=True,
+        title="Models / Frameworks",
+    )
+
+    fig.subplots_adjust(right=0.76)
+
+    return fig, ax
+# %%
