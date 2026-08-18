@@ -39,7 +39,6 @@ CONFIG = {
 
 PERIODS = [
     ('2025-08-12 00:00', '2025-08-16 12:00', 'Period 1'),
-    # ('2025-08-16 13:00', '2025-09-16 00:00', 'Period 2'),
     ('2025-08-16 13:00', '2025-09-03 00:00', 'Period 2'),
     ('2025-09-03 01:00', '2025-09-16 00:00', 'Period 3'),
     (CONFIG['start_date'], CONFIG['end_date'], 'Entire Cruise')
@@ -53,8 +52,8 @@ MODEL_REGISTRY = {
         'type': 'det', 'var': 'vis', 'color': 'blue'
     },
     'LowLvlMean': {
-        'path': f'{RUN_DIR}/model_data/ifs_diagnostic_lowLvlMean.nc',
-        'type': 'det', 'var': 'vis', 'color': 'tab:blue'
+        'path': f'{RUN_DIR}/model_data/ifs_oper_oden_20250811_20250915_day2_new_visibility_diagnostic_v2.nc',
+        'type': 'det', 'var': 'vis_from_hydro_lowLvlMean_7levels', 'color': 'tab:blue'
     },
     'Persist_10min': {
         'path': f'{RUN_DIR}/model_data/AO2025_20250812-20250915_persistence_forecast_v2.nc',
@@ -137,7 +136,6 @@ MODEL_STYLE.update({
     'TAF_Pessimistic': 'purple',
     'TAF_Optimistic': 'magenta'
 })
-
 
 #%% 3. EVALUATION 
 # ---------------------------------------------------------
@@ -230,7 +228,6 @@ print(f"Ensemble Brier Score (Fog):   {bs_ens_low:.4f}\n")
 print(final_res_low.to_string(float_format="%.3f"))
 print("=" * 67)
 
-
 #%% 4. VISUALIZATION
 # ---------------------------------------------------------
 # Dispatch processed dual structures directly to the matrix plotting function.
@@ -240,10 +237,11 @@ print("=" * 67)
 fig, axs = vf.plot_multi_period_performance_matrix(
     results_high=matrix_results['high'],
     results_low=matrix_results['low'],
-    period_names=[d[2] for d in PERIODS],
+    period_names=["Entire cruise"],
     model_style_map=MODEL_STYLE,
-    all_periods=True,
+    all_periods=False,
     insets=True,
+    plot_halves=True
 )
 
 # 2. Metrics summary (example for entire period [3], considering both halves )
@@ -256,9 +254,7 @@ fig1.suptitle("Low visibility events"); fig2.suptitle("Low visibility events")
 vf.plot_reliability_diagram(prob_fog, taf_eval['obs_event'], n_bins=20)
 vf.plot_talagrand_histogram(ens_aligned, taf_eval['obs_vis'])
 
-#%%
-
-# 3. Flexible Visibility Summary Meteogram 
+# 4. Flexible Visibility Summary Meteogram 
 # Programmatically parse only continuous/physical time series from the pipeline
 # Filter data to TAF validity times only (set to NaN outside validity window)
 vis_obs_filtered = vis_obs.copy()
@@ -287,5 +283,174 @@ fig_met, ax_met = vf.plot_vis_summary(
 )
 ax_met.set_title("Log-Scale Visibility Time Series Comparison (Sub-Window Test)", fontweight='bold')
 
+
+#%% 5. SEEPS Computation and calculation
+
+# Three visibility categories:
+#   V <= 0.8 km
+#   0.8 < V <= 2.0 km
+#   V > 2.0 km
+# ONE common climatological SEEPS matrix is estimated from the full-cruise observations and reused for every period.
+
+SEEPS_THRESHOLDS = (0.8, 3.0)
+seeps_t1, seeps_t2 = SEEPS_THRESHOLDS
+
+# Construct three requested constant-category reference forecasts
+# Useful to check if SEEPS is correctly computed:
+# they should be zero for the netire period and different than zero for the individual ones
+
+constant_low_value = 0.7
+constant_mid_value = 0.5 * (seeps_t1 + seeps_t2)
+constant_high_value = 10.0
+
+# Backup data
+seeps_model_data = model_data.copy()
+
+# Also create a "perfect" forecast by copying the observations
+seeps_model_data["Perfect"] = taf_eval["obs_vis"].copy()
+seeps_model_data.update(
+    {
+        "Always_700m": pd.Series(
+            constant_low_value,
+            index=time_vec,
+            dtype=float,
+        ),
+        "Always_Mid": pd.Series(
+            constant_mid_value,
+            index=time_vec,
+            dtype=float,
+        ),
+        "Always_10000m": pd.Series(
+            constant_high_value,
+            index=time_vec,
+            dtype=float,
+        ),
+    }
+)
+
+
+# Define ONE observational climatology for the scoring matrix.
+
+seeps_common_valid = (
+    (taf_eval.index >= CONFIG["start_date"])
+    & (taf_eval.index <= CONFIG["end_date"])
+    & (taf_eval["is_valid"] == True)
+)
+
+seeps_climatology_obs = taf_eval.loc[
+    seeps_common_valid,
+    "obs_vis"
+].dropna()
+
+
+# Calculate full-cruise climatological prob and matrix
+_, seeps_score_matrix, seeps_probs = (
+    vf.compute_seeps_visibility(
+        obs=seeps_climatology_obs,
+        forecasts={
+            "_dummy": seeps_climatology_obs,
+        },
+        thresholds_km=SEEPS_THRESHOLDS,
+        climatology_obs=seeps_climatology_obs,
+    )
+)
+
+# Show matrix and p1 p2 p3:
+print("\n=== VISIBILITY SEEPS CONFIGURATION ===")
+print(
+    f"Thresholds: "
+    f"{seeps_t1 * 1000:.0f} m, "
+    f"{seeps_t2 * 1000:.0f} m"
+)
+print("\nClimatological category probabilities:")
+print(seeps_probs.to_string(float_format="%.4f"))
+print("\nSEEPS error matrix:")
+print(
+    pd.DataFrame(
+        seeps_score_matrix,
+        index=["FC Low","FC Intermediate", "FC High"],
+        columns=["OBS Low", "OBS Intermediate","OBS High"],
+    ).to_string(float_format="%.3f")
+)
+
+# Evaluate each operational period.
+#
+# Each period uses:
+#    - the observations inside that period
+#    - the model forecats inside that period
+#    - the SAME full-cruise climatological probabilities
+#
+# This means differences between periods represent forecast
+# performance rather than changes in the scoring matrix
+
+seeps_period_results = {}
+seeps_sample_sizes = {}
+
+for start_t, end_t, period_name in PERIODS:
+    period_mask = (
+        (taf_eval.index >= start_t)
+        & (taf_eval.index <= end_t)
+        & (taf_eval["is_valid"] == True)
+    )
+    obs_period = taf_eval.loc[
+        period_mask,
+        "obs_vis"
+    ]
+    forecasts_period = {
+        name: series.reindex(taf_eval.index).loc[period_mask]
+        for name, series in seeps_model_data.items()
+    }
+
+    period_result, _, _ = vf.compute_seeps_visibility(
+        obs=obs_period,
+        forecasts=forecasts_period,
+        thresholds_km=SEEPS_THRESHOLDS,
+        climatology_obs=seeps_climatology_obs,
+    )
+
+    seeps_period_results[period_name] = (
+        period_result["SEEPS_skill"]
+    )
+    seeps_sample_sizes[period_name] = (
+        period_result["N"]
+    )
+
+# Plot tables
+# rows    -> periods
+# columns -> model
+
+seeps_skill_table = pd.DataFrame(
+    seeps_period_results
+).T
+seeps_n_table = pd.DataFrame(
+    seeps_sample_sizes
+).T
+print("\n=== VISIBILITY SEEPS SKILL ===")
+print(seeps_skill_table.to_string(float_format="%.3f"))
+
+print("\n=== VALID SAMPLE SIZE ===")
+print(seeps_n_table.to_string(float_format="%.0f"))
+
+#%% 6. SEEPS VISUALIZATION
+
+SEEPS_MODEL_STYLE = MODEL_STYLE.copy()
+
+SEEPS_MODEL_STYLE.update(
+    {
+        "Always_700m": "0.35",
+        "Always_Mid": "0.55",
+        "Always_10000m": "0.75",
+    }
+)
+
+fig_seeps, ax_seeps = vf.plot_seeps_skill(
+    skill_table=seeps_skill_table,
+    thresholds_km=SEEPS_THRESHOLDS,
+    model_style_map=SEEPS_MODEL_STYLE,
+    highlight_period="Entire Cruise",
+    periods_to_plot=None
+)
+# Cut axis for visualization purposes
+ax_seeps.set_ylim(top=1.,bottom=-0.4)
 
 #%%
