@@ -18,9 +18,8 @@ import matplotlib.pyplot as plt
 plt.rcParams['figure.dpi'] = 300
 
 #%% 1. CONFIGURATION AND REGISTRY
-# ---------------------------------------------------------
 # All parameters, paths, and metadata governing the analysis.
-# ---------------------------------------------------------
+
 RUN_DIR="/Users/lodo0477/Documents/PhD/Research/Visibility study"
 CONFIG = {
     'fog_thresh': 0.8,
@@ -73,9 +72,8 @@ FC_STYLES = {
 
 
 #%% 2. DATA PIPELINE 
-# ---------------------------------------------------------
 # Extract, transform, and load data uniformly to time_vec.
-# ---------------------------------------------------------
+
 time_vec = pd.date_range(start=CONFIG['start_date'], end=CONFIG['end_date'], freq=CONFIG['time_res'], inclusive="both")
 # model_data will contain the physical visibility values.
 model_data = {}
@@ -138,10 +136,8 @@ MODEL_STYLE.update({
 })
 
 #%% 3. EVALUATION 
-# ---------------------------------------------------------
 # Compute binary verification metrics over defined periods and TAF halves
 # for BOTH High-Visibility and Low-Visibility regimes.
-# ---------------------------------------------------------
 
 # Dictionaries to store multi-period results for both verification targets
 matrix_results = {
@@ -229,17 +225,15 @@ print(final_res_low.to_string(float_format="%.3f"))
 print("=" * 67)
 
 #%% 4. VISUALIZATION
-# ---------------------------------------------------------
 # Dispatch processed dual structures directly to the matrix plotting function.
-# ---------------------------------------------------------
 
 # Generate the 4x2 or 1x2 matrix oplot showing High Visibility (Col 0) and Low Visibility (Col 1)
 fig, axs = vf.plot_multi_period_performance_matrix(
     results_high=matrix_results['high'],
     results_low=matrix_results['low'],
-    period_names=["Entire cruise"],
+    period_names=[d[2] for d in PERIODS],
     model_style_map=MODEL_STYLE,
-    all_periods=False,
+    all_periods=True,
     insets=True,
     plot_halves=True
 )

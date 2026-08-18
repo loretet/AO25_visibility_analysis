@@ -175,6 +175,66 @@ def df_TAF_gen(taf_table, time_vec, debug):
             continue
     return df
 
+def assign_event_probabilities(df, fog_thresh, higher_than_fog_thresh):
+    """
+    Maps TAF categorical trends to numerical event probabilities $P(\text{Vis} >< fog_{thresh})$.
+    Priority follows: Main (100%) > PROB40 (40%) > PROB30 (30%) > TEMPO (10%).
+    Useful if a probability-based approach is used instead of strict categorical bins and best/worst/base
+    visibility scenarios.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        TAF DataFrame with scenario columns.
+    fog_thresh : float 
+        The visibility threshold (km) defining the "event" (e.g., fog), by default 1.0.
+    higher_than_fog_thresh : bool
+        If True, the "event" is defined as visibility > fog_thresh (opportunity). 
+        If False, the "event" is defined as visibility <= fog_thresh (hazard), by default False.
+
+    Returns
+    -------
+    df : pd.DataFrame
+        DataFrame with the 'p_event' column added.
+    """
+
+    # Initialize based on the Main Scenario
+    if higher_than_fog_thresh:
+        # Event is "Clear": Probability is 1.0 if main > threshold, else 0.0
+        df['p_event'] = (df['main_scenario'] > fog_thresh).astype(float)
+    else:
+        # Event is "Fog": Probability is 1.0 if main <= threshold, else 0.0
+        df['p_event'] = (df['main_scenario'] <= fog_thresh).astype(float)
+
+    # Process Trends (TEMPO, PROB30, PROB40)
+    for col, weight in [('tempo', 0.1), ('prob30', 0.3), ('prob40', 0.4)]:
+        mask_trend_exists = df[col].notna()
+        
+        if higher_than_fog_thresh:
+            mask_trend_is_clear = df[col] > fog_thresh
+            mask_trend_is_fog = df[col] <= fog_thresh
+            
+            # If main was Fog (prob 0) but trend is Clear, ADD probability
+            df.loc[mask_trend_exists & mask_trend_is_clear & (df['main_scenario'] <= fog_thresh), 'p_event'] += weight
+            # If main was Clear (prob 1) but trend is Fog, SUBTRACT probability
+            df.loc[mask_trend_exists & mask_trend_is_fog & (df['main_scenario'] > fog_thresh), 'p_event'] -= weight
+            
+        else:
+            mask_trend_is_fog = df[col] <= fog_thresh
+            mask_trend_is_clear = df[col] > fog_thresh
+            
+            # If main was Clear (prob 0) but trend is Fog, ADD probability
+            df.loc[mask_trend_exists & mask_trend_is_fog & (df['main_scenario'] > fog_thresh), 'p_event'] += weight
+            # If main was Fog (prob 1) but trend is Clear, SUBTRACT probability
+            df.loc[mask_trend_exists & mask_trend_is_clear & (df['main_scenario'] <= fog_thresh), 'p_event'] -= weight
+
+    # Ensure probabilities stay within [0, 1]
+    df['p_event'] = df['p_event'].clip(0.0, 1.0)
+    
+    # Invalidate where no TAF exists
+    df.loc[df['is_valid'] == False, 'p_event'] = np.nan
+    return df
+
 def calculate_scenarios(df):
     """
     Computes the deterministic 'Main' scenario and the probabilistic 'Best/Worst' 
@@ -264,45 +324,6 @@ def compute_all_metrics(truth, event_library):
         all_metrics[name] = get_metrics(event_series, truth)
     
     return pd.DataFrame(all_metrics).T
-
-def plot_metrics_summary(metrics_df):
-    """
-    Visualizes verification metrics as two subplots: ratios and absolute counts.
-
-    Parameters
-    ----------
-    metrics_df : pd.DataFrame
-        DataFrame output from compute_all_metrics with models as rows and 
-        metrics (POD, FAR, CSI, Bias, Hits, Misses) as columns.
-
-    Returns
-    -------
-    fig1 : matplotlib.figure.Figure
-        Figure containing bar plot of POD, FAR, CSI, and Bias (0-1 scale).
-    fig2 : matplotlib.figure.Figure
-        Figure containing bar plot of absolute hit, miss,false alarms and correct negatives counts.
-    """
-    # 1. Plot ratios (POD, FAR, CSI, Bias)
-    ratios = metrics_df[['POD', 'FAR', 'CSI', 'Bias']]
-    fig1, ax1 = plt.subplots(figsize=(10, 5))
-    ratios.plot(kind='bar', ax=ax1, rot=0, edgecolor='black', alpha=0.8)
-    ax1.set_ylim(0, 1.2) # Bias might go > 1, so 1.2 is a safe cap
-    ax1.set_title('Performance Ratios (POD, FAR, CSI)')
-    ax1.grid(axis='y', linestyle=':', alpha=0.6)
-    ax1.set_xticklabels(ax1.get_xticklabels(), rotation=30, ha='right')
-    
-    # 2. Plot absolute counts (Hits, Misses)
-    counts = metrics_df[['Hits', 'Misses','False alarms','Correct negatives']]
-    fig2, ax2 = plt.subplots(figsize=(10, 5))
-    counts.plot(kind='bar', ax=ax2, rot=0, edgecolor='black', alpha=0.8,width=0.8)
-    ax2.set_title('Absolute Frequency (Hits vs Misses)')
-    ax2.grid(axis='y', linestyle=':', alpha=0.6)
-    ax2.set_xticklabels(ax2.get_xticklabels(), rotation=30, ha='right')
-    
-    # Add value labels on bars
-    for container in ax2.containers:
-        ax2.bar_label(container, fmt='%.0f')
-    return fig1, fig2
 
 def get_evaluation_library(model_dict, obs_series, fog_thresh, higher_than_fog_thresh):
     """
@@ -629,6 +650,128 @@ def compute_seeps_visibility(obs, forecasts, thresholds_km = (0.8, 5.0),  climat
     results = pd.DataFrame.from_dict(results, orient="index")
 
     return results, score_matrix, probabilities
+
+def plot_metrics_summary(metrics_df):
+    """
+    Visualizes verification metrics as two subplots: ratios and absolute counts.
+
+    Parameters
+    ----------
+    metrics_df : pd.DataFrame
+        DataFrame output from compute_all_metrics with models as rows and 
+        metrics (POD, FAR, CSI, Bias, Hits, Misses) as columns.
+
+    Returns
+    -------
+    fig1 : matplotlib.figure.Figure
+        Figure containing bar plot of POD, FAR, CSI, and Bias (0-1 scale).
+    fig2 : matplotlib.figure.Figure
+        Figure containing bar plot of absolute hit, miss,false alarms and correct negatives counts.
+    """
+    # 1. Plot ratios (POD, FAR, CSI, Bias)
+    ratios = metrics_df[['POD', 'FAR', 'CSI', 'Bias']]
+    fig1, ax1 = plt.subplots(figsize=(10, 5))
+    ratios.plot(kind='bar', ax=ax1, rot=0, edgecolor='black', alpha=0.8)
+    ax1.set_ylim(0, 1.2) # Bias might go > 1, so 1.2 is a safe cap
+    ax1.set_title('Performance Ratios (POD, FAR, CSI)')
+    ax1.grid(axis='y', linestyle=':', alpha=0.6)
+    ax1.set_xticklabels(ax1.get_xticklabels(), rotation=30, ha='right')
+    
+    # 2. Plot absolute counts (Hits, Misses)
+    counts = metrics_df[['Hits', 'Misses','False alarms','Correct negatives']]
+    fig2, ax2 = plt.subplots(figsize=(10, 5))
+    counts.plot(kind='bar', ax=ax2, rot=0, edgecolor='black', alpha=0.8,width=0.8)
+    ax2.set_title('Absolute Frequency (Hits vs Misses)')
+    ax2.grid(axis='y', linestyle=':', alpha=0.6)
+    ax2.set_xticklabels(ax2.get_xticklabels(), rotation=30, ha='right')
+    
+    # Add value labels on bars
+    for container in ax2.containers:
+        ax2.bar_label(container, fmt='%.0f')
+    return fig1, fig2
+
+def plot_vis_summary(df, series_dict, fog_thresh, start_date=None, end_date=None, 
+                     y_lim=(0.01, 10), show_taf_uncertainty=True, show_fog_threshold=True):
+    """
+    Plots a log-scale time series comparison of visibility series (flexible, modular).
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        TAF DataFrame containing 'worst_vis', 'best_vis', 'main_scenario', and 'is_valid' columns.
+    series_dict : dict
+        Dictionary mapping series names to tuples of (pd.Series, color, linestyle, linewidth, marker).
+        Example: {
+            'Observations': (vis_obs, 'crimson', '-', 2, None),
+            'IFS Model': (vis_mod1, 'blue', '--', 1.5, None),
+        }
+    fog_thresh : float
+        Visibility threshold for fog definition (km).
+    start_date : str or pd.Timestamp, optional
+        Start date for the plot window. If None, uses full time range.
+    end_date : str or pd.Timestamp, optional
+        End date for the plot window. If None, uses full time range.
+    y_lim : tuple, optional
+        Y-axis limits (min, max). Default is (0.04, 15).
+    show_taf_uncertainty : bool, optional
+        Whether to show TAF uncertainty band. Default is True.
+    show_fog_threshold : bool, optional
+        Whether to show fog threshold line. Default is True.
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+        Figure object containing the log-scale visibility comparison plot.
+    ax : matplotlib.axes.Axes
+        Axes object for further customization.
+    """
+    fig, ax = plt.subplots(figsize=(21, 7))
+    
+    # Time window selection
+    if start_date and end_date:
+        plot_df = df.loc[start_date:end_date]
+    else:
+        plot_df = df
+    
+    # Plot TAF uncertainty band
+    if show_taf_uncertainty and 'worst_vis' in df.columns and 'best_vis' in df.columns:
+        ax.fill_between(plot_df.index, plot_df['worst_vis'], plot_df['best_vis'], 
+                        color='lightgray', alpha=0.5, label='TAF Uncertainty (TEMPO/PROB)')
+    
+    # Plot main scenario
+    if 'main_scenario' in df.columns:
+        ax.plot(plot_df.index, plot_df['main_scenario'], color='black', linewidth=1.2, 
+                label='TAF Main (Base/BECMG)')
+    
+    # Plot each series from series_dict
+    for series_name, (series, color, linestyle, linewidth, marker) in series_dict.items():
+        aligned_series = series.reindex(df.index, method='nearest')
+        plot_series = aligned_series.loc[plot_df.index]
+        ax.plot(plot_df.index, plot_series, color=color, linestyle=linestyle, 
+                linewidth=linewidth, label=series_name, marker=marker)
+    
+    # Formatting
+    ax.set_yscale('log')
+    ax.set_ylim(*y_lim)
+    y_ticks = [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10]
+    ax.set_yticks(y_ticks)
+    ax.set_yticklabels([str(t) for t in y_ticks])
+    
+    if show_fog_threshold:
+        ax.axhline(y=fog_thresh, color='red', linestyle=':', alpha=0.5, label='Fog Threshold (0.8 km)')
+    
+    ax.set_ylabel('Visibility [km] (Log Scale)')
+    ax.grid(True, which='both', linestyle='--', alpha=0.4)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%d %b\n%H:%M'))
+    
+    # Highlight invalid TAF periods
+    if 'is_valid' in df.columns:
+        ax.fill_between(plot_df.index, 0, 1, where=~plot_df['is_valid'], 
+                        color='yellow', alpha=0.1, transform=ax.get_xaxis_transform(), label='No TAF')
+
+    ax.legend(loc='lower right', frameon=True, fontsize='small', ncol=2)
+    plt.tight_layout()
+    return fig, ax
 
 def plot_reliability_diagram(prob_forecast, obs_binary, n_bins=10):
     """
@@ -1189,66 +1332,6 @@ def get_text_marker(text, size=20):
 # LEGACY FUNCTIONS (not maintained) #
 # ================================= #
 
-# def assign_event_probabilities(df, fog_thresh, higher_than_fog_thresh):
-#     """
-#     Maps TAF categorical trends to numerical event probabilities $P(\text{Vis} >< fog_{thresh})$.
-#     Priority follows: Main (100%) > PROB40 (40%) > PROB30 (30%) > TEMPO (10%).
-#     Useful if a probability-based approach is used instead of strict categorical bins and best/worst/base
-#     visibility scenarios.
-
-#     Parameters
-#     ----------
-#     df : pd.DataFrame
-#         TAF DataFrame with scenario columns.
-#     fog_thresh : float 
-#         The visibility threshold (km) defining the "event" (e.g., fog), by default 1.0.
-#     higher_than_fog_thresh : bool
-#         If True, the "event" is defined as visibility > fog_thresh (opportunity). 
-#         If False, the "event" is defined as visibility <= fog_thresh (hazard), by default False.
-
-#     Returns
-#     -------
-#     df : pd.DataFrame
-#         DataFrame with the 'p_event' column added.
-#     """
-
-#     # Initialize based on the Main Scenario
-#     if higher_than_fog_thresh:
-#         # Event is "Clear": Probability is 1.0 if main > threshold, else 0.0
-#         df['p_event'] = (df['main_scenario'] > fog_thresh).astype(float)
-#     else:
-#         # Event is "Fog": Probability is 1.0 if main <= threshold, else 0.0
-#         df['p_event'] = (df['main_scenario'] <= fog_thresh).astype(float)
-
-#     # Process Trends (TEMPO, PROB30, PROB40)
-#     for col, weight in [('tempo', 0.1), ('prob30', 0.3), ('prob40', 0.4)]:
-#         mask_trend_exists = df[col].notna()
-        
-#         if higher_than_fog_thresh:
-#             mask_trend_is_clear = df[col] > fog_thresh
-#             mask_trend_is_fog = df[col] <= fog_thresh
-            
-#             # If main was Fog (prob 0) but trend is Clear, ADD probability
-#             df.loc[mask_trend_exists & mask_trend_is_clear & (df['main_scenario'] <= fog_thresh), 'p_event'] += weight
-#             # If main was Clear (prob 1) but trend is Fog, SUBTRACT probability
-#             df.loc[mask_trend_exists & mask_trend_is_fog & (df['main_scenario'] > fog_thresh), 'p_event'] -= weight
-            
-#         else:
-#             mask_trend_is_fog = df[col] <= fog_thresh
-#             mask_trend_is_clear = df[col] > fog_thresh
-            
-#             # If main was Clear (prob 0) but trend is Fog, ADD probability
-#             df.loc[mask_trend_exists & mask_trend_is_fog & (df['main_scenario'] > fog_thresh), 'p_event'] += weight
-#             # If main was Fog (prob 1) but trend is Clear, SUBTRACT probability
-#             df.loc[mask_trend_exists & mask_trend_is_clear & (df['main_scenario'] <= fog_thresh), 'p_event'] -= weight
-
-#     # Ensure probabilities stay within [0, 1]
-#     df['p_event'] = df['p_event'].clip(0.0, 1.0)
-    
-#     # Invalidate where no TAF exists
-#     df.loc[df['is_valid'] == False, 'p_event'] = np.nan
-#     return df
-
 # def plot_ens_meteogram(prob_df, model_dict, vis_obs, start_date, end_date, resample_freq='3H'):
 #     """
 #     Plots TAF probabilities as a stacked bar chart with model visibility rows below.
@@ -1540,90 +1623,6 @@ def get_text_marker(text, size=20):
 #     axs2[0].legend()
 #     plt.tight_layout()
 #     return fig,axs
-
-# def plot_vis_summary(df, series_dict, fog_thresh, start_date=None, end_date=None, 
-#                      y_lim=(0.01, 10), show_taf_uncertainty=True, show_fog_threshold=True):
-#     """
-#     Plots a log-scale time series comparison of visibility series (flexible, modular).
-
-#     Parameters
-#     ----------
-#     df : pd.DataFrame
-#         TAF DataFrame containing 'worst_vis', 'best_vis', 'main_scenario', and 'is_valid' columns.
-#     series_dict : dict
-#         Dictionary mapping series names to tuples of (pd.Series, color, linestyle, linewidth, marker).
-#         Example: {
-#             'Observations': (vis_obs, 'crimson', '-', 2, None),
-#             'IFS Model': (vis_mod1, 'blue', '--', 1.5, None),
-#         }
-#     fog_thresh : float
-#         Visibility threshold for fog definition (km).
-#     start_date : str or pd.Timestamp, optional
-#         Start date for the plot window. If None, uses full time range.
-#     end_date : str or pd.Timestamp, optional
-#         End date for the plot window. If None, uses full time range.
-#     y_lim : tuple, optional
-#         Y-axis limits (min, max). Default is (0.04, 15).
-#     show_taf_uncertainty : bool, optional
-#         Whether to show TAF uncertainty band. Default is True.
-#     show_fog_threshold : bool, optional
-#         Whether to show fog threshold line. Default is True.
-
-#     Returns
-#     -------
-#     fig : matplotlib.figure.Figure
-#         Figure object containing the log-scale visibility comparison plot.
-#     ax : matplotlib.axes.Axes
-#         Axes object for further customization.
-#     """
-#     fig, ax = plt.subplots(figsize=(21, 7))
-    
-#     # Time window selection
-#     if start_date and end_date:
-#         plot_df = df.loc[start_date:end_date]
-#     else:
-#         plot_df = df
-    
-#     # Plot TAF uncertainty band
-#     if show_taf_uncertainty and 'worst_vis' in df.columns and 'best_vis' in df.columns:
-#         ax.fill_between(plot_df.index, plot_df['worst_vis'], plot_df['best_vis'], 
-#                         color='lightgray', alpha=0.5, label='TAF Uncertainty (TEMPO/PROB)')
-    
-#     # Plot main scenario
-#     if 'main_scenario' in df.columns:
-#         ax.plot(plot_df.index, plot_df['main_scenario'], color='black', linewidth=1.2, 
-#                 label='TAF Main (Base/BECMG)')
-    
-#     # Plot each series from series_dict
-#     for series_name, (series, color, linestyle, linewidth, marker) in series_dict.items():
-#         aligned_series = series.reindex(df.index, method='nearest')
-#         plot_series = aligned_series.loc[plot_df.index]
-#         ax.plot(plot_df.index, plot_series, color=color, linestyle=linestyle, 
-#                 linewidth=linewidth, label=series_name, marker=marker)
-    
-#     # Formatting
-#     ax.set_yscale('log')
-#     ax.set_ylim(*y_lim)
-#     y_ticks = [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10]
-#     ax.set_yticks(y_ticks)
-#     ax.set_yticklabels([str(t) for t in y_ticks])
-    
-#     if show_fog_threshold:
-#         ax.axhline(y=fog_thresh, color='red', linestyle=':', alpha=0.5, label='Fog Threshold (0.8 km)')
-    
-#     ax.set_ylabel('Visibility [km] (Log Scale)')
-#     ax.grid(True, which='both', linestyle='--', alpha=0.4)
-#     ax.xaxis.set_major_formatter(mdates.DateFormatter('%d %b\n%H:%M'))
-    
-#     # Highlight invalid TAF periods
-#     if 'is_valid' in df.columns:
-#         ax.fill_between(plot_df.index, 0, 1, where=~plot_df['is_valid'], 
-#                         color='yellow', alpha=0.1, transform=ax.get_xaxis_transform(), label='No TAF')
-
-#     ax.legend(loc='lower right', frameon=True, fontsize='small', ncol=2)
-#     plt.tight_layout()
-#     return fig, ax
-
 
 # def plot_multi_period_performance(results_list, period_names, model_style_map, higher_than_fog_thresh):
 #     """
