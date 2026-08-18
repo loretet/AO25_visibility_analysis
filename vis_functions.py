@@ -420,6 +420,217 @@ def compute_brier_score(f, o):
 
     return ((f[valid_mask] - o[valid_mask])**2).mean()
 
+
+def calculate_ets(a, b, c, d):
+    """
+    Calculates the Equitable Threat Score (ETS).
+    
+    Parameters:
+    -----------
+    a : int/float
+        Hits
+    b : int/float
+        False Alarms
+    c : int/float
+        Misses
+    d : int/float
+        Correct Negatives
+    
+    Returns:
+    -----------
+    ets : float 
+        ETS value (range -1/3 to 1. 1 is perfect, 0 is no skill).
+    """
+    
+    n = a + b + c + d
+    
+    # 1. Calculate hits expected by chance (a_ref)
+    # (Total Forecast Yes * Total Observed Yes) / Total Events
+    a_ref = float((a + b) * (a + c)) / n
+    
+    # 2. Calculate ETS
+    numerator = a - a_ref
+    denominator = a + b + c - a_ref
+    
+    # Extreme case handling
+    if denominator == 0:
+        return np.nan
+        
+    ets = numerator / denominator
+    
+    return ets
+
+
+def compute_seeps_visibility(obs, forecasts, thresholds_km = (0.8, 5.0),  climatology_obs = None):
+    """
+    Comptue a three-category SEEPS score for visibility.
+
+    Visibility categories
+    ---------------------
+    Category 1 : V <= threshold_1
+    Category 2 : threshold_1 < V <= threshold_2
+    Category 3 : V > threshold_2
+
+    Parameters
+    ----------
+    obs : pd.Series
+        Observed visibility in km.
+
+    forecasts : dict[str, pd.Series]
+        Dictionary containing deterministic visibility forecasts in km.
+
+    thresholds_km : tuple(float, float), optional
+        Lower and upper visibility thresholds in km.
+        Default is (0.8, 2.0).
+
+    climatology_obs : pd.Series, optional
+        Observations used to estimate the climatological probabilities
+        p1, p2 and p3 entering the SEEPS scoring matrix as in Rodwell et al.'s paper.
+
+        If None, "obs" itself is used.
+
+        For comparisons between multiple verification periods, it is
+        preferable to pass the SAME climatology_obs to all calls so that
+        every period uses the same SEEPS scoring matrix.
+
+    Returns
+    -------
+    results : pd.DataFrame
+        One row per forecast, with columns:
+        - SEEPS_error
+        - SEEPS_skill
+        - N
+        - p1
+        - p2
+        - p3
+    score_matrix : np.ndarray, shape (3, 3)
+        SEEPS error matrix. Rows correspond to forecast categories and
+        columns to observed categories.
+    category_probabilities : pd.Series
+        Climatological probabilities p1,p2 and p3.
+    """
+
+    # Converts obs to pandas series
+    if not isinstance(obs, pd.Series):
+        obs = pd.Series(obs)
+    if climatology_obs is None:
+        climatology_obs = obs.dropna().astype(float)
+
+    # Get and check thresholds
+    thresh_1, thresh_2 = thresholds_km
+    if thresh_1>=thresh_2:
+        raise ValueError(f"Expected threshold_1 < threshold_2, received {thresh_1} >= {thresh_2}.")
+
+    # Estimate climatological category probabilities OVER THE ENTIRE PERIOD
+    p1 = np.mean(climatology_obs <= thresh_1)
+    p2 = np.mean((climatology_obs > thresh_1) & (climatology_obs <= thresh_2))
+    p3 = np.mean(climatology_obs > thresh_2)
+
+    probabilities = pd.Series(
+        {
+            "p1": p1,
+            "p2": p2,
+            "p3": p3,
+        },
+        name="climatological_probability",
+    )
+
+    # Eq. (15) from Rodwell et al. contains 1/p1, 1/(1-p1), 1/p3, 1/(1-p3).
+    # So add check for matrix singularity
+    if min(p1, p3, 1.0 - p1, 1.0 - p3) < 0.05:
+        print("One SEEPS climatological probability is close to a ")
+        print("singular limit. Off-diagonal penalties may become very large. ")
+        print(f"p1={p1:.3f}, p2={p2:.3f}, p3={p3:.3f}")
+
+    # Then compute score matrix itself
+    # Rows    -> forecast category
+    # Columns -> observed category
+    score_matrix = 0.5 * np.array(
+        [
+            [
+                0.0,
+                1.0 / (1.0 - p1),
+                1.0 / p3 + 1.0 / (1.0 - p1),
+            ],
+            [
+                1.0 / p1,
+                0.0,
+                1.0 / p3,
+            ],
+            [
+                1.0 / p1 + 1.0 / (1.0 - p3),
+                1.0 / (1.0 - p3),
+                0.0,
+            ],
+        ],  # it's a cost-error (or "penalty") matrix
+        dtype=float,
+    )
+
+    # Internal category mapping
+    #     0 -> low visibility
+    #     1 -> intermediate visibility
+    #     2 -> high visibility
+    def visibility_category(values):
+        return np.select(
+            [
+                values <= thresh_1,
+                (values > thresh_1) & (values <= thresh_2),
+                values > thresh_2,
+            ],
+            [
+                0,
+                1,
+                2,
+            ],
+            default=-1,
+        ).astype(int)
+
+    # Actual scoritng of the different forecasts
+    results = {}
+    for model_name, forecast in forecasts.items():
+        if not isinstance(forecast, pd.Series):
+            forecast = pd.Series(forecast, index=obs.index)
+
+        # Explicit timestamp alignment
+        comparison = pd.concat(
+            [
+                obs.rename("obs"),  # change names for columns in the resulting dataframe
+                forecast.rename("forecast"),
+            ],
+            axis=1, # match by putting them side by side in two columns, matching indices
+            join="inner",
+        ).dropna()  # 2-column DataFrame containing (valid) temporally-matched forecast-observation pairs
+
+        n_valid = len(comparison)
+
+        obs_category = visibility_category(comparison["obs"].values)
+        forecast_category = visibility_category(comparison["forecast"].values)
+
+        # score_matrix.shape       = (3, 3)
+        # forecast_category.shape  = (N,)
+        # obs_category.shape      = (N,)
+        # individual_errors.shape  = (N,)
+        individual_errors = score_matrix[
+            forecast_category,
+            obs_category,
+        ]  # for every N verification time, advanced indexing gives one element of the 3x3 SEEPS matrix
+
+        seeps_error = np.mean(individual_errors)
+        seeps_skill = 1.0 - seeps_error
+
+        results[model_name] = {
+            "SEEPS_error": seeps_error,
+            "SEEPS_skill": seeps_skill,
+            "N": n_valid,
+            "p1": p1,
+            "p2": p2,
+            "p3": p3,
+        }
+
+    results = pd.DataFrame.from_dict(results, orient="index")
+
+    return results, score_matrix, probabilities
+
 def plot_reliability_diagram(prob_forecast, obs_binary, n_bins=10):
     """
     Plots a reliability diagram showing forecast calibration.
@@ -534,45 +745,124 @@ def plot_talagrand_histogram(ens_data, obs_data):
     
     return fig, ax
 
-def calculate_ets(a, b, c, d):
+def plot_seeps_skill(skill_table, thresholds_km=(0.8, 2.0), model_style_map=None, 
+                     constant_models=None, highlight_period="Entire Cruise", periods_to_plot=None):
     """
-    Calculates the Equitable Threat Score (ETS).
-    
-    Parameters:
-    -----------
-    a : int/float
-        Hits
-    b : int/float
-        False Alarms
-    c : int/float
-        Misses
-    d : int/float
-        Correct Negatives
-    
-    Returns:
-    -----------
-    ets : float 
-        ETS value (range -1/3 to 1. 1 is perfect, 0 is no skill).
-    """
-    
-    n = a + b + c + d
-    
-    # 1. Calculate hits expected by chance (a_ref)
-    # (Total Forecast Yes * Total Observed Yes) / Total Events
-    a_ref = float((a + b) * (a + c)) / n
-    
-    # 2. Calculate ETS
-    numerator = a - a_ref
-    denominator = a + b + c - a_ref
-    
-    # Extreme case handling
-    if denominator == 0:
-        return np.nan
-        
-    ets = numerator / denominator
-    
-    return ets
+    Plot multi-model SEEPS skill scores across verification periods.
 
+    Parameters
+    ----------
+    skill_table : pd.DataFrame
+        Rows are verification periods and columns are forecast/model names.
+        Values are SEEPS skill scores.
+
+    thresholds_km : tuple(float, float), optional
+        Visibility category thresholds in km.
+
+    model_style_map : dict, optional
+        Mapping ``model_name -> matplotlib color``.
+
+    constant_models : iterable[str], optional
+        Names of constant-category baseline forecasts. These receive
+        hatch patterns and black edges so that they are visually distinct
+        from the physical forecast systems.
+
+    title : str, optional
+        Figure title.
+
+    highlight_period : str or None, optional
+        Name of the period to shade in the background.
+    
+    periods_to_plot : str or None, optional
+        Which periods to plot. If None, plot all
+
+    Returns
+    -------
+    fig : matplotlib.figure.Figure
+    ax : matplotlib.axes.Axes
+    """
+
+    if not isinstance(skill_table, pd.DataFrame):
+        raise TypeError("skill_table must be a pandas DataFrame.")
+
+    if skill_table.empty:
+        raise ValueError("skill_table is empty.")
+
+    # Optionally, only plot certain periods
+    if periods_to_plot is not None:
+        missing_periods = [
+            period
+            for period in periods_to_plot
+            if period not in skill_table.index
+        ]
+        if missing_periods:
+            raise ValueError(
+                "Requested periods are not present in skill_table: "
+                f"{missing_periods}"
+            )
+        skill_table = skill_table.loc[periods_to_plot]
+
+
+    model_style_map = (
+        {} if model_style_map is None else model_style_map.copy()
+    )
+    constant_models = (
+        set() if constant_models is None else set(constant_models)
+    )
+    period_names = list(skill_table.index)
+    model_names = list(skill_table.columns)
+    n_periods = len(period_names)
+    n_models = len(model_names)
+
+    fig, ax = plt.subplots(figsize=(14, 7))
+    # cosmetics
+    group_x = np.arange(n_periods)
+    total_group_width = 0.82
+    bar_width = total_group_width / max(n_models, 1)
+    offsets = (np.arange(n_models) - (n_models - 1) / 2.0) * bar_width
+    hatch_cycle = ["///", "\\\\\\", "xx", "..", "++"]
+    constant_counter = 0
+
+    # Background highlight for requested period
+    if (highlight_period is not None
+        and highlight_period in period_names):
+        idx = period_names.index(highlight_period)
+
+        ax.axvspan(idx -0.5, idx + 0.5, color="yellow", alpha=0.2, zorder=0)
+
+    [ax.axvline(idx + 0.5, ls="--",lw=0.7,c="k") for idx in range(len(period_names))]
+    # Bars
+    for model_idx, model_name in enumerate(model_names):
+        values = skill_table[model_name].values.astype(float)
+        color = model_style_map.get(model_name, None)
+        bar_kwargs = {
+            "x": group_x + offsets[model_idx],
+            "height": values,
+            "width": bar_width * 0.92,
+            "label": model_name,
+            "zorder": 3,
+        }
+        if color is not None:
+            bar_kwargs["color"] = color
+        if model_name in constant_models:
+            bar_kwargs["edgecolor"] = "black"
+            bar_kwargs["linewidth"] = 1.2
+            bar_kwargs["hatch"] = hatch_cycle[
+                constant_counter % len(hatch_cycle)
+            ]
+            constant_counter += 1
+        ax.bar(**bar_kwargs)
+
+    # Labels and formatting
+    ax.axhline(0.0,color="crimson", ls="--", linewidth=1.6, zorder=2,)
+    ax.set_xticks(group_x)
+    ax.set_xticklabels(period_names)
+    ax.set_ylabel("SEEPS skill score")
+    ax.set_xlabel("Evaluation window")
+    ax.legend(loc="upper right", ncol=3)
+    fig.subplots_adjust(right=0.76)
+
+    return fig, ax
 
 def plot_multi_period_performance_matrix(results_high, results_low, period_names, model_style_map, all_periods=True, insets=True, plot_halves=True):
     """
