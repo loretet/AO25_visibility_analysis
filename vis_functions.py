@@ -628,12 +628,27 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
         A 2D array of matplotlib.axes.Axes objects containing only the verification plot panels, 
         cleared of the trailing dedicated colorbar axis geometry.
     """
-    
+
+    # Helper function to handle nans
+    # Convert POD/FAR metrics to coordinates on the performance diagram.
+    # Undefined metrics are placed on the corresponding boundary so that
+    # every evaluated forecast remains visible.
+    def metric_row_to_plot_point(row):
+        pod = row['POD']
+        far = row['FAR']
+
+        pod_plot = 0.0 if pd.isna(pod) else float(pod)
+        far_plot = 0.0 if pd.isna(far) else float(far)
+
+        sr_plot = 1.0 - far_plot
+
+        return sr_plot, pod_plot
+        
     # Create markers for different data halves (Assumes get_text_marker is defined)
     my_marker_1 = get_text_marker("A")
     my_marker_2 = get_text_marker("B")
 
-    # 1. Setup Data Meshgrids for Background CSI
+    # Setup Data Meshgrids for Background CSI
     x = np.linspace(0.001, 1, 100)
     y = np.linspace(0.001, 1, 100)
     SR_grid, POD_grid = np.meshgrid(x, y)
@@ -693,7 +708,6 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
             results = data_sources[j][i] 
             splits = results['splits']
 
-            # Highlight Row 0 (Entire Cruise Summary) with prominent thick borders
             if i == 0:
                 for spine in ax.spines.values():
                     spine.set_linewidth(1.8)       
@@ -738,9 +752,9 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
                         row_1st  = df_1st.loc[model_name]
                         row_2nd  = df_2nd.loc[model_name]
 
-                        pt_full = (1 - row_full['FAR'], row_full['POD'])
-                        pt_1st  = (1 - row_1st['FAR'],  row_1st['POD'])
-                        pt_2nd  = (1 - row_2nd['FAR'],  row_2nd['POD'])
+                        pt_full = metric_row_to_plot_point(row_full)
+                        pt_1st  = metric_row_to_plot_point(row_1st)
+                        pt_2nd  = metric_row_to_plot_point(row_2nd)
 
                         mrkr = "*" if model_name == "Persist_10min" else "o"
                         sz = 180 if model_name == "Persist_10min" else 120
@@ -787,7 +801,7 @@ def plot_multi_period_performance_matrix(results_high, results_low, period_names
             ax.set_xlim(-0.02, 1.02); ax.set_ylim(-0.02, 1.02)
             ax.grid(True, linestyle=':', alpha=0.4)
 
-    # 2. Dynamic label placement
+    # Dynamic label placement
     for j in range(2):
         plot_axs[-1, j].set_xlabel('Success Ratio (1 - FAR)', fontsize=13)
     for i in range(n_rows):
@@ -882,1024 +896,595 @@ def get_text_marker(text, size=20):
     fp = FontProperties(family='sans-serif',style="normal")
     return TextPath((0, 0), text, size=size, prop=fp)
 
-# ============================== #
-# LEGACY FUNCTIONS (not in main) #
-# ============================== #
+# ================================= #
+# LEGACY FUNCTIONS (not maintained) #
+# ================================= #
 
-def assign_event_probabilities(df, fog_thresh, higher_than_fog_thresh):
-    """
-    Maps TAF categorical trends to numerical event probabilities $P(\text{Vis} >< fog_{thresh})$.
-    Priority follows: Main (100%) > PROB40 (40%) > PROB30 (30%) > TEMPO (10%).
-    Useful if a probability-based approach is used instead of strict categorical bins and best/worst/base
-    visibility scenarios.
+# def assign_event_probabilities(df, fog_thresh, higher_than_fog_thresh):
+#     """
+#     Maps TAF categorical trends to numerical event probabilities $P(\text{Vis} >< fog_{thresh})$.
+#     Priority follows: Main (100%) > PROB40 (40%) > PROB30 (30%) > TEMPO (10%).
+#     Useful if a probability-based approach is used instead of strict categorical bins and best/worst/base
+#     visibility scenarios.
 
-    Parameters
-    ----------
-    df : pd.DataFrame
-        TAF DataFrame with scenario columns.
-    fog_thresh : float 
-        The visibility threshold (km) defining the "event" (e.g., fog), by default 1.0.
-    higher_than_fog_thresh : bool
-        If True, the "event" is defined as visibility > fog_thresh (opportunity). 
-        If False, the "event" is defined as visibility <= fog_thresh (hazard), by default False.
+#     Parameters
+#     ----------
+#     df : pd.DataFrame
+#         TAF DataFrame with scenario columns.
+#     fog_thresh : float 
+#         The visibility threshold (km) defining the "event" (e.g., fog), by default 1.0.
+#     higher_than_fog_thresh : bool
+#         If True, the "event" is defined as visibility > fog_thresh (opportunity). 
+#         If False, the "event" is defined as visibility <= fog_thresh (hazard), by default False.
 
-    Returns
-    -------
-    df : pd.DataFrame
-        DataFrame with the 'p_event' column added.
-    """
+#     Returns
+#     -------
+#     df : pd.DataFrame
+#         DataFrame with the 'p_event' column added.
+#     """
 
-    # Initialize based on the Main Scenario
-    if higher_than_fog_thresh:
-        # Event is "Clear": Probability is 1.0 if main > threshold, else 0.0
-        df['p_event'] = (df['main_scenario'] > fog_thresh).astype(float)
-    else:
-        # Event is "Fog": Probability is 1.0 if main <= threshold, else 0.0
-        df['p_event'] = (df['main_scenario'] <= fog_thresh).astype(float)
+#     # Initialize based on the Main Scenario
+#     if higher_than_fog_thresh:
+#         # Event is "Clear": Probability is 1.0 if main > threshold, else 0.0
+#         df['p_event'] = (df['main_scenario'] > fog_thresh).astype(float)
+#     else:
+#         # Event is "Fog": Probability is 1.0 if main <= threshold, else 0.0
+#         df['p_event'] = (df['main_scenario'] <= fog_thresh).astype(float)
 
-    # Process Trends (TEMPO, PROB30, PROB40)
-    for col, weight in [('tempo', 0.1), ('prob30', 0.3), ('prob40', 0.4)]:
-        mask_trend_exists = df[col].notna()
+#     # Process Trends (TEMPO, PROB30, PROB40)
+#     for col, weight in [('tempo', 0.1), ('prob30', 0.3), ('prob40', 0.4)]:
+#         mask_trend_exists = df[col].notna()
         
-        if higher_than_fog_thresh:
-            mask_trend_is_clear = df[col] > fog_thresh
-            mask_trend_is_fog = df[col] <= fog_thresh
+#         if higher_than_fog_thresh:
+#             mask_trend_is_clear = df[col] > fog_thresh
+#             mask_trend_is_fog = df[col] <= fog_thresh
             
-            # If main was Fog (prob 0) but trend is Clear, ADD probability
-            df.loc[mask_trend_exists & mask_trend_is_clear & (df['main_scenario'] <= fog_thresh), 'p_event'] += weight
-            # If main was Clear (prob 1) but trend is Fog, SUBTRACT probability
-            df.loc[mask_trend_exists & mask_trend_is_fog & (df['main_scenario'] > fog_thresh), 'p_event'] -= weight
+#             # If main was Fog (prob 0) but trend is Clear, ADD probability
+#             df.loc[mask_trend_exists & mask_trend_is_clear & (df['main_scenario'] <= fog_thresh), 'p_event'] += weight
+#             # If main was Clear (prob 1) but trend is Fog, SUBTRACT probability
+#             df.loc[mask_trend_exists & mask_trend_is_fog & (df['main_scenario'] > fog_thresh), 'p_event'] -= weight
             
-        else:
-            mask_trend_is_fog = df[col] <= fog_thresh
-            mask_trend_is_clear = df[col] > fog_thresh
+#         else:
+#             mask_trend_is_fog = df[col] <= fog_thresh
+#             mask_trend_is_clear = df[col] > fog_thresh
             
-            # If main was Clear (prob 0) but trend is Fog, ADD probability
-            df.loc[mask_trend_exists & mask_trend_is_fog & (df['main_scenario'] > fog_thresh), 'p_event'] += weight
-            # If main was Fog (prob 1) but trend is Clear, SUBTRACT probability
-            df.loc[mask_trend_exists & mask_trend_is_clear & (df['main_scenario'] <= fog_thresh), 'p_event'] -= weight
+#             # If main was Clear (prob 0) but trend is Fog, ADD probability
+#             df.loc[mask_trend_exists & mask_trend_is_fog & (df['main_scenario'] > fog_thresh), 'p_event'] += weight
+#             # If main was Fog (prob 1) but trend is Clear, SUBTRACT probability
+#             df.loc[mask_trend_exists & mask_trend_is_clear & (df['main_scenario'] <= fog_thresh), 'p_event'] -= weight
 
-    # Ensure probabilities stay within [0, 1]
-    df['p_event'] = df['p_event'].clip(0.0, 1.0)
+#     # Ensure probabilities stay within [0, 1]
+#     df['p_event'] = df['p_event'].clip(0.0, 1.0)
     
-    # Invalidate where no TAF exists
-    df.loc[df['is_valid'] == False, 'p_event'] = np.nan
-    return df
+#     # Invalidate where no TAF exists
+#     df.loc[df['is_valid'] == False, 'p_event'] = np.nan
+#     return df
 
-def plot_ens_meteogram(prob_df, model_dict, vis_obs, start_date, end_date, resample_freq='3H'):
-    """
-    Plots TAF probabilities as a stacked bar chart with model visibility rows below.
+# def plot_ens_meteogram(prob_df, model_dict, vis_obs, start_date, end_date, resample_freq='3H'):
+#     """
+#     Plots TAF probabilities as a stacked bar chart with model visibility rows below.
 
-    Parameters
-    ----------
-    prob_df : pd.DataFrame
-        DataFrame indexed by time with columns for each visibility bin.
-        Each cell contains a probability (0.0 to 1.0) for that bin.
-    model_dict : dict
-        Dictionary mapping model names to visibility series { 'ModelName': pd.Series(vis_km) }.
-    vis_obs : pd.Series
-        Observed visibility time series (km).
-    start_date : str or pd.Timestamp
-        Start date for the plot window.
-    end_date : str or pd.Timestamp
-        End date for the plot window.
-    resample_freq : str 
-        Resampling frequency for aggregating probabilities, by default '3H'.
+#     Parameters
+#     ----------
+#     prob_df : pd.DataFrame
+#         DataFrame indexed by time with columns for each visibility bin.
+#         Each cell contains a probability (0.0 to 1.0) for that bin.
+#     model_dict : dict
+#         Dictionary mapping model names to visibility series { 'ModelName': pd.Series(vis_km) }.
+#     vis_obs : pd.Series
+#         Observed visibility time series (km).
+#     start_date : str or pd.Timestamp
+#         Start date for the plot window.
+#     end_date : str or pd.Timestamp
+#         End date for the plot window.
+#     resample_freq : str 
+#         Resampling frequency for aggregating probabilities, by default '3H'.
 
-    Returns
-    -------
-    None
-        Displays matplotlib figure with meteogram
-    """
-    start_date, end_date = str(start_date), str(end_date)
-    p_sub = prob_df.loc[start_date:end_date].resample(resample_freq).mean()
-    obs_3h = vis_obs.reindex(p_sub.index, method='nearest')
+#     Returns
+#     -------
+#     None
+#         Displays matplotlib figure with meteogram
+#     """
+#     start_date, end_date = str(start_date), str(end_date)
+#     p_sub = prob_df.loc[start_date:end_date].resample(resample_freq).mean()
+#     obs_3h = vis_obs.reindex(p_sub.index, method='nearest')
     
-    bins = [0, 0.15, 0.35, 0.6, 0.8, 1.5, 3.0, 5.0, 10.0]
-    colors = ['#191970', '#E31A1C', '#FF7F00', '#FFFF33', '#00FFFF', '#1F78B4', '#33A02C', '#B2DF8A']
+#     bins = [0, 0.15, 0.35, 0.6, 0.8, 1.5, 3.0, 5.0, 10.0]
+#     colors = ['#191970', '#E31A1C', '#FF7F00', '#FFFF33', '#00FFFF', '#1F78B4', '#33A02C', '#B2DF8A']
 
-    fig, ax = plt.subplots(figsize=(13, 3 + (len([model for model in model_dict if "Ens" not in model]) * 1.5)))
-    fig.suptitle(f"TAF-Based Meteogram with (deterministic) model comparison\n({start_date} to {end_date})", fontweight='bold', fontsize=14)
+#     fig, ax = plt.subplots(figsize=(13, 3 + (len([model for model in model_dict if "Ens" not in model]) * 1.5)))
+#     fig.suptitle(f"TAF-Based Meteogram with (deterministic) model comparison\n({start_date} to {end_date})", fontweight='bold', fontsize=14)
     
-    # 1. Plot Probability Stack
-    bottom = np.zeros(len(p_sub))
-    for i, col in enumerate(p_sub.columns):
-        ax.bar(p_sub.index, p_sub[col] * 100, bottom=bottom, width=0.08, 
-               color=colors[i], label=col, align='center', edgecolor='white', linewidth=0.1)
-        bottom += p_sub[col].values * 100
+#     # 1. Plot Probability Stack
+#     bottom = np.zeros(len(p_sub))
+#     for i, col in enumerate(p_sub.columns):
+#         ax.bar(p_sub.index, p_sub[col] * 100, bottom=bottom, width=0.08, 
+#                color=colors[i], label=col, align='center', edgecolor='white', linewidth=0.1)
+#         bottom += p_sub[col].values * 100
 
-    # 2. Plot Observation Row (Fixed at bottom)
-    for t in p_sub.index:
-        o_idx = np.digitize(obs_3h.loc[t], bins) - 1
-        ax.plot(t, -5, marker='s', markersize=10, color=colors[o_idx] if 0 <= o_idx < len(colors) else '#E0E0E0')
+#     # 2. Plot Observation Row (Fixed at bottom)
+#     for t in p_sub.index:
+#         o_idx = np.digitize(obs_3h.loc[t], bins) - 1
+#         ax.plot(t, -5, marker='s', markersize=10, color=colors[o_idx] if 0 <= o_idx < len(colors) else '#E0E0E0')
 
-    # 3. Plot Each Model Row
-    i = 0
-    for (name, vis_series) in (model_dict.items()):
-        if "Ens" not in name:
-            y_pos = -15 - (i * 10) # Each model gets a new row
-            right_x = p_sub.index.max() + (p_sub.index.max() - p_sub.index.min()) *0.01
-            mod_3h = vis_series.reindex(p_sub.index, method='nearest')
+#     # 3. Plot Each Model Row
+#     i = 0
+#     for (name, vis_series) in (model_dict.items()):
+#         if "Ens" not in name:
+#             y_pos = -15 - (i * 10) # Each model gets a new row
+#             right_x = p_sub.index.max() + (p_sub.index.max() - p_sub.index.min()) *0.01
+#             mod_3h = vis_series.reindex(p_sub.index, method='nearest')
             
-            for t in p_sub.index:
-                m_idx = np.digitize(mod_3h.loc[t], bins) - 1
-                ax.plot(t, y_pos, marker='s', markersize=10, 
-                        color=colors[m_idx] if 0 <= m_idx < len(colors) else '#E0E0E0')
+#             for t in p_sub.index:
+#                 m_idx = np.digitize(mod_3h.loc[t], bins) - 1
+#                 ax.plot(t, y_pos, marker='s', markersize=10, 
+#                         color=colors[m_idx] if 0 <= m_idx < len(colors) else '#E0E0E0')
             
-            ax.text(right_x, y_pos, f'{name}  ', ha='left', va='center', fontweight='bold', fontsize=9)
-            i += 1
+#             ax.text(right_x, y_pos, f'{name}  ', ha='left', va='center', fontweight='bold', fontsize=9)
+#             i += 1
 
-    ax.text(right_x, -5, 'Observations  ', ha='left', va='center', fontweight='bold', fontsize=9, color='crimson')
-    ax.set_ylim(-15 - (len([model for model in model_dict if "Ens" not in model]) * 10), 105)
-    ax.set_ylabel('Forecaster Probability [%]')
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%a %d\n%H:%M'))
+#     ax.text(right_x, -5, 'Observations  ', ha='left', va='center', fontweight='bold', fontsize=9, color='crimson')
+#     ax.set_ylim(-15 - (len([model for model in model_dict if "Ens" not in model]) * 10), 105)
+#     ax.set_ylabel('Forecaster Probability [%]')
+#     ax.xaxis.set_major_formatter(mdates.DateFormatter('%a %d\n%H:%M'))
     
-    # Clean up aesthetics
-    ax.legend(bbox_to_anchor=(1.01, 1), loc='upper left', title="Visibility Bins", frameon=False)
-    for day in pd.date_range(start_date, end_date, freq='D'):
-        ax.axvline(day, c='k', alpha=0.3, lw=0.5)
-    plt.tight_layout()
+#     # Clean up aesthetics
+#     ax.legend(bbox_to_anchor=(1.01, 1), loc='upper left', title="Visibility Bins", frameon=False)
+#     for day in pd.date_range(start_date, end_date, freq='D'):
+#         ax.axvline(day, c='k', alpha=0.3, lw=0.5)
+#     plt.tight_layout()
 
-def plot_taf_window(df, fog_thresh, start_time, end_time):
-    """
-    Plots the Main, Best, and Worst TAF scenarios for a specific time window.
+# def plot_taf_window(df, fog_thresh, start_time, end_time):
+#     """
+#     Plots the Main, Best, and Worst TAF scenarios for a specific time window.
     
-    Useful for detailed case studies of specific fog events.
+#     Useful for detailed case studies of specific fog events.
 
-    Parameters
-    ----------
-    df : pd.DataFrame
-        TAF DataFrame containing 'best_vis', 'worst_vis', and 'main_vis' columns.
-    fog_thresh : float
-        Visibility threshold for fog definition (km).
-    start_time : str or pd.Timestamp
-        Start time for the plot window.
-    end_time : str or pd.Timestamp
-        End time for the plot window.
+#     Parameters
+#     ----------
+#     df : pd.DataFrame
+#         TAF DataFrame containing 'best_vis', 'worst_vis', and 'main_vis' columns.
+#     fog_thresh : float
+#         Visibility threshold for fog definition (km).
+#     start_time : str or pd.Timestamp
+#         Start time for the plot window.
+#     end_time : str or pd.Timestamp
+#         End time for the plot window.
 
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        Figure object containing the TAF scenarios plot.
-    ax : matplotlib.axes.Axes
-        Axes object for further customization.
-    """
-    fig, ax = plt.subplots(figsize=(12, 6))
-    pdf = df.loc[start_time:end_time]
+#     Returns
+#     -------
+#     fig : matplotlib.figure.Figure
+#         Figure object containing the TAF scenarios plot.
+#     ax : matplotlib.axes.Axes
+#         Axes object for further customization.
+#     """
+#     fig, ax = plt.subplots(figsize=(12, 6))
+#     pdf = df.loc[start_time:end_time]
     
-    ax.plot(pdf.index, pdf.best_vis, c="forestgreen", ls="--", alpha=0.7, label="Best Case")
-    ax.plot(pdf.index, pdf.worst_vis, c="crimson", ls="--", alpha=0.7, label="Worst Case")
-    ax.plot(pdf.index, pdf.main_vis, c="k", lw=1.8, label="Main Scenario (Base/BECMG)", drawstyle='steps-post')
+#     ax.plot(pdf.index, pdf.best_vis, c="forestgreen", ls="--", alpha=0.7, label="Best Case")
+#     ax.plot(pdf.index, pdf.worst_vis, c="crimson", ls="--", alpha=0.7, label="Worst Case")
+#     ax.plot(pdf.index, pdf.main_vis, c="k", lw=1.8, label="Main Scenario (Base/BECMG)", drawstyle='steps-post')
     
-    ax.axhline(fog_thresh, c='r', ls=":", alpha=0.8, label=f"Fog Threshold ({fog_thresh} km)")
-    ax.set_ylabel("Visibility [km]", fontsize=12)
-    ax.set_ylim(0, 10.5)
-    ax.set_title(f"TAF Scenarios: {start_time} to {end_time}", fontweight='bold')
+#     ax.axhline(fog_thresh, c='r', ls=":", alpha=0.8, label=f"Fog Threshold ({fog_thresh} km)")
+#     ax.set_ylabel("Visibility [km]", fontsize=12)
+#     ax.set_ylim(0, 10.5)
+#     ax.set_title(f"TAF Scenarios: {start_time} to {end_time}", fontweight='bold')
     
-    locator = mdates.AutoDateLocator()
-    ax.xaxis.set_major_locator(locator)
-    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
+#     locator = mdates.AutoDateLocator()
+#     ax.xaxis.set_major_locator(locator)
+#     ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(locator))
     
-    for day in pd.date_range(pdf.index.min(), pdf.index.max(), freq='D'):
-        ax.axvline(day, c='k', alpha=0.3, lw=0.8, zorder=0)
+#     for day in pd.date_range(pdf.index.min(), pdf.index.max(), freq='D'):
+#         ax.axvline(day, c='k', alpha=0.3, lw=0.8, zorder=0)
         
-    ax.legend(frameon=True, loc='upper right', fontsize='small')
-    ax.grid(True, axis='y', alpha=0.3)
-    plt.tight_layout()
-    return fig, ax
+#     ax.legend(frameon=True, loc='upper right', fontsize='small')
+#     ax.grid(True, axis='y', alpha=0.3)
+#     plt.tight_layout()
+#     return fig, ax
 
-def plot_taf_components(df):
-    """
-    Visualizes raw TAF components (Base, TEMPO, BECMG) as recorded.
+# def plot_taf_components(df):
+#     """
+#     Visualizes raw TAF components (Base, TEMPO, BECMG) as recorded.
     
-    Useful for assessing how forecasters utilize specific TAF change-indicators.
+#     Useful for assessing how forecasters utilize specific TAF change-indicators.
 
-    Parameters
-    ----------
-    df : pd.DataFrame
-        TAF DataFrame containing 'base', 'tempo', and 'becmg' columns.
+#     Parameters
+#     ----------
+#     df : pd.DataFrame
+#         TAF DataFrame containing 'base', 'tempo', and 'becmg' columns.
 
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        Figure object containing the TAF components plot.
-    ax : matplotlib.axes.Axes
-        Axes object for further customization.
-    """
-    fig, ax = plt.subplots(figsize=(15, 5))
-    ax.plot(df.index, df['base'], label='Base Visibility', color='royalblue', lw=1.5)
-    ax.plot(df.index, df['tempo'], label='TEMPO', color='darkorange', marker='.', markersize=2, ls='')
-    ax.plot(df.index, df['becmg'], label='BECMG', color='seagreen', lw=2)
+#     Returns
+#     -------
+#     fig : matplotlib.figure.Figure
+#         Figure object containing the TAF components plot.
+#     ax : matplotlib.axes.Axes
+#         Axes object for further customization.
+#     """
+#     fig, ax = plt.subplots(figsize=(15, 5))
+#     ax.plot(df.index, df['base'], label='Base Visibility', color='royalblue', lw=1.5)
+#     ax.plot(df.index, df['tempo'], label='TEMPO', color='darkorange', marker='.', markersize=2, ls='')
+#     ax.plot(df.index, df['becmg'], label='BECMG', color='seagreen', lw=2)
     
-    ax.set_ylim(0, 10.5)
-    ax.set_ylabel('Visibility [km]')
-    ax.set_title('Raw TAF Components (Evolution over Cruise)', fontweight='bold')
+#     ax.set_ylim(0, 10.5)
+#     ax.set_ylabel('Visibility [km]')
+#     ax.set_title('Raw TAF Components (Evolution over Cruise)', fontweight='bold')
 
-    days = pd.date_range(df.index.min().normalize(), df.index.max().normalize(), freq='D')
-    for i, day in enumerate(days[:-1]):
-        if i % 2 == 0:
-            ax.axvspan(day, day + pd.Timedelta(days=1), color='gray', alpha=0.1, zorder=0)
+#     days = pd.date_range(df.index.min().normalize(), df.index.max().normalize(), freq='D')
+#     for i, day in enumerate(days[:-1]):
+#         if i % 2 == 0:
+#             ax.axvspan(day, day + pd.Timedelta(days=1), color='gray', alpha=0.1, zorder=0)
 
-    ax.legend(loc='upper right', ncol=3)
-    plt.tight_layout()
-    return fig, ax
+#     ax.legend(loc='upper right', ncol=3)
+#     plt.tight_layout()
+#     return fig, ax
 
-def plot_ensemble_spaghetti(ens_xr, obs_series, start_t, end_t, fog_thresh):
-    """
-    Plots individual ensemble members as 'spaghetti' lines to visualize forecast spread
-    and uncertainty relative to observations.
+# def plot_ensemble_spaghetti(ens_xr, obs_series, start_t, end_t, fog_thresh):
+#     """
+#     Plots individual ensemble members as 'spaghetti' lines to visualize forecast spread
+#     and uncertainty relative to observations.
 
-    Parameters
-    ----------
-    ens_xr : xarray.DataArray
-        Ensemble visibility data with dimensions (time, number).
-        Each 'number' represents an individual ensemble member.
-    obs_series : pd.Series
-        Observed visibility time series (km), indexed by datetime.
-    start_t : str or pd.Timestamp
-        Start time for the plot window.
-    end_t : str or pd.Timestamp
-        End time for the plot window.
-    fog_thresh : float 
-        Visibility threshold for fog definition (km), by default 0.8.
+#     Parameters
+#     ----------
+#     ens_xr : xarray.DataArray
+#         Ensemble visibility data with dimensions (time, number).
+#         Each 'number' represents an individual ensemble member.
+#     obs_series : pd.Series
+#         Observed visibility time series (km), indexed by datetime.
+#     start_t : str or pd.Timestamp
+#         Start time for the plot window.
+#     end_t : str or pd.Timestamp
+#         End time for the plot window.
+#     fog_thresh : float 
+#         Visibility threshold for fog definition (km), by default 0.8.
 
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        Figure object containing the spaghetti plot.
-    ax : matplotlib.axes.Axes
-        Axes object for further customization.
-    """
+#     Returns
+#     -------
+#     fig : matplotlib.figure.Figure
+#         Figure object containing the spaghetti plot.
+#     ax : matplotlib.axes.Axes
+#         Axes object for further customization.
+#     """
     
-    # Slice data for the window
-    window_ens = ens_xr.sel(time=slice(start_t, end_t))
-    window_obs = obs_series.loc[start_t:end_t]
+#     # Slice data for the window
+#     window_ens = ens_xr.sel(time=slice(start_t, end_t))
+#     window_obs = obs_series.loc[start_t:end_t]
     
-    fig, ax = plt.subplots(figsize=(12, 6))
+#     fig, ax = plt.subplots(figsize=(12, 6))
     
-    # Plot individual members (Thin and Transparent)
-    for i in window_ens.number.values:
-        ax.plot(window_ens.time, window_ens.sel(number=i), 
-                color='gray', alpha=0.5, lw=0.5, zorder=1)
+#     # Plot individual members (Thin and Transparent)
+#     for i in window_ens.number.values:
+#         ax.plot(window_ens.time, window_ens.sel(number=i), 
+#                 color='gray', alpha=0.5, lw=0.5, zorder=1)
     
-    # obs
-    ax.plot(window_obs.index, window_obs, 
-            color='red', label='Observations', zorder=3)
+#     # obs
+#     ax.plot(window_obs.index, window_obs, 
+#             color='red', label='Observations', zorder=3)
 
-    # ens mediam
-    ax.plot(window_ens.time, window_ens.median(dim='number'), 
-            color='k',  label='Ensemble Median', zorder=2, lw=0.8)
+#     # ens mediam
+#     ax.plot(window_ens.time, window_ens.median(dim='number'), 
+#             color='k',  label='Ensemble Median', zorder=2, lw=0.8)
     
-    # fog threshold
-    ax.axhline(fog_thresh, color='black', ls='--', alpha=0.6, label='Fog Threshold')
+#     # fog threshold
+#     ax.axhline(fog_thresh, color='black', ls='--', alpha=0.6, label='Fog Threshold')
     
-    ax.set_ylim(0, 10.5) 
-    ax.set_ylabel('Visibility [km]')
-    ax.set_title(f'Ensemble Spread vs. Observations ({start_t} to {end_t})')
-    ax.legend()
-    plt.tight_layout()
-    return fig, ax
+#     ax.set_ylim(0, 10.5) 
+#     ax.set_ylabel('Visibility [km]')
+#     ax.set_title(f'Ensemble Spread vs. Observations ({start_t} to {end_t})')
+#     ax.legend()
+#     plt.tight_layout()
+#     return fig, ax
 
-def plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, fog_thresh):
-    """
-    Generate probability density function (PDF) and cumulative distribution function (CDF) plots for visibility data.
-    This function creates a 2x3 subplot grid displaying PDFs in the top row and empirical CDFs (ECDFs) 
-    in the bottom row for different time periods. The plots highlight fog conditions based on a specified 
-    visibility threshold.
+# def plot_visibility_pdfs_cdfs(ds_obs, time_vec, periods, quant_vars, fog_thresh):
+#     """
+#     Generate probability density function (PDF) and cumulative distribution function (CDF) plots for visibility data.
+#     This function creates a 2x3 subplot grid displaying PDFs in the top row and empirical CDFs (ECDFs) 
+#     in the bottom row for different time periods. The plots highlight fog conditions based on a specified 
+#     visibility threshold.
 
-    Parameters
-    ----------
-    ds_obs : xarray.Dataset
-        Dataset containing observational visibility data with variables corresponding to quant_vars.
-    time_vec : pandas.DatetimeIndex
-        Time vector for reindexing the data to align observations with a common temporal grid.
-    periods : list of tuple
-        List of tuples containing ((start_time, end_time), period_name) pairs defining the time periods 
-        to analyze and their descriptive names.
-    quant_vars : list of str
-        List of variable names representing different visibility measurement sources or types. 
-        The first 4 variables are plotted in the PDFs and CDFs.
-    fog_thresh : float
-        Visibility threshold (in km) below which conditions are considered foggy. Used to highlight 
-        the fog zone and set x-axis limits for the ECDF plots.
+#     Parameters
+#     ----------
+#     ds_obs : xarray.Dataset
+#         Dataset containing observational visibility data with variables corresponding to quant_vars.
+#     time_vec : pandas.DatetimeIndex
+#         Time vector for reindexing the data to align observations with a common temporal grid.
+#     periods : list of tuple
+#         List of tuples containing ((start_time, end_time), period_name) pairs defining the time periods 
+#         to analyze and their descriptive names.
+#     quant_vars : list of str
+#         List of variable names representing different visibility measurement sources or types. 
+#         The first 4 variables are plotted in the PDFs and CDFs.
+#     fog_thresh : float
+#         Visibility threshold (in km) below which conditions are considered foggy. Used to highlight 
+#         the fog zone and set x-axis limits for the ECDF plots.
 
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        Figure object containing the reliability diagram.
-    axs : matplotlib.axes.Axes
-        Axes object for further customization.
-    """
-    raw_data = {}
-    for v in quant_vars:
-        raw_data[v] = ds_obs[v].to_series().reindex(time_vec, method='nearest', tolerance='5min') * 1e-3
+#     Returns
+#     -------
+#     fig : matplotlib.figure.Figure
+#         Figure object containing the reliability diagram.
+#     axs : matplotlib.axes.Axes
+#         Axes object for further customization.
+#     """
+#     raw_data = {}
+#     for v in quant_vars:
+#         raw_data[v] = ds_obs[v].to_series().reindex(time_vec, method='nearest', tolerance='5min') * 1e-3
     
-    fig, axs = plt.subplots(2, 3, figsize=(16, 10))
-    axs1 = axs[0, :] 
-    axs2 = axs[1, :] 
+#     fig, axs = plt.subplots(2, 3, figsize=(16, 10))
+#     axs1 = axs[0, :] 
+#     axs2 = axs[1, :] 
     
-    for i, (bounds, period_name) in enumerate(periods):    
-        p_start, p_end = bounds
+#     for i, (bounds, period_name) in enumerate(periods):    
+#         p_start, p_end = bounds
         
-        for var_name, ls in zip(quant_vars[:4], ["-", "--", ":", "-."]):
-            # 1. Extract period subset
-            subset = raw_data[var_name].loc[p_start:p_end].dropna()
-            if subset.empty:
-                continue
+#         for var_name, ls in zip(quant_vars[:4], ["-", "--", ":", "-."]):
+#             # 1. Extract period subset
+#             subset = raw_data[var_name].loc[p_start:p_end].dropna()
+#             if subset.empty:
+#                 continue
 
-            # --- PDF Plotting ---
-            sns.histplot(subset, stat="density", element="poly", label=var_name, 
-                         bins=50, kde=False, fill=False, linestyle=ls, ax=axs1[i])
+#             # --- PDF Plotting ---
+#             sns.histplot(subset, stat="density", element="poly", label=var_name, 
+#                          bins=50, kde=False, fill=False, linestyle=ls, ax=axs1[i])
             
-            # --- CDF Plotting ---
-            # Sort full subset to get the true ECDF of the period
-            x_sorted = np.sort(subset.values)
-            # Probability P(X <= x)
-            y_values = np.arange(1, len(x_sorted) + 1) / len(x_sorted)
+#             # --- CDF Plotting ---
+#             # Sort full subset to get the true ECDF of the period
+#             x_sorted = np.sort(subset.values)
+#             # Probability P(X <= x)
+#             y_values = np.arange(1, len(x_sorted) + 1) / len(x_sorted)
             
-            axs2[i].plot(x_sorted, y_values, label=var_name, linestyle=ls, 
-                         marker='.', markersize=6, alpha=0.6, lw=0.5)
+#             axs2[i].plot(x_sorted, y_values, label=var_name, linestyle=ls, 
+#                          marker='.', markersize=6, alpha=0.6, lw=0.5)
 
-        axs1[i].set_title(f"Visibility PDF: {period_name}")
-        axs1[i].set_xlim(0, 20)
-        axs1[i].axvspan(0, fog_thresh, color='yellow', alpha=0.2, label='Fog Zone')
-        axs1[i].axvline(fog_thresh, color='k', linestyle=':', alpha=0.5, label='Fog Threshold')
-        axs2[i].set_title(f"Visibility ECDF (Fog Zoom): {period_name}")
-        axs2[i].set_xlabel("Visibility (km)")
-        axs2[i].set_ylabel("Cumulative Probability")
+#         axs1[i].set_title(f"Visibility PDF: {period_name}")
+#         axs1[i].set_xlim(0, 20)
+#         axs1[i].axvspan(0, fog_thresh, color='yellow', alpha=0.2, label='Fog Zone')
+#         axs1[i].axvline(fog_thresh, color='k', linestyle=':', alpha=0.5, label='Fog Threshold')
+#         axs2[i].set_title(f"Visibility ECDF (Fog Zoom): {period_name}")
+#         axs2[i].set_xlabel("Visibility (km)")
+#         axs2[i].set_ylabel("Cumulative Probability")
         
-        axs2[i].set_xlim(0, fog_thresh * 1.5) 
-        axs2[i].grid(True, which='both', alpha=0.3)
-        axs2[i].axvspan(0, fog_thresh, color='yellow', alpha=0.1)
-        axs2[i].axvline(fog_thresh, color='k', linestyle=':', alpha=0.5, label='Fog Threshold')
+#         axs2[i].set_xlim(0, fog_thresh * 1.5) 
+#         axs2[i].grid(True, which='both', alpha=0.3)
+#         axs2[i].axvspan(0, fog_thresh, color='yellow', alpha=0.1)
+#         axs2[i].axvline(fog_thresh, color='k', linestyle=':', alpha=0.5, label='Fog Threshold')
 
-    axs1[0].legend()
-    axs2[0].legend()
-    plt.tight_layout()
-    return fig,axs
+#     axs1[0].legend()
+#     axs2[0].legend()
+#     plt.tight_layout()
+#     return fig,axs
 
-def plot_vis_summary(df, series_dict, fog_thresh, start_date=None, end_date=None, 
-                     y_lim=(0.01, 10), show_taf_uncertainty=True, show_fog_threshold=True):
-    """
-    Plots a log-scale time series comparison of visibility series (flexible, modular).
+# def plot_vis_summary(df, series_dict, fog_thresh, start_date=None, end_date=None, 
+#                      y_lim=(0.01, 10), show_taf_uncertainty=True, show_fog_threshold=True):
+#     """
+#     Plots a log-scale time series comparison of visibility series (flexible, modular).
 
-    Parameters
-    ----------
-    df : pd.DataFrame
-        TAF DataFrame containing 'worst_vis', 'best_vis', 'main_scenario', and 'is_valid' columns.
-    series_dict : dict
-        Dictionary mapping series names to tuples of (pd.Series, color, linestyle, linewidth, marker).
-        Example: {
-            'Observations': (vis_obs, 'crimson', '-', 2, None),
-            'IFS Model': (vis_mod1, 'blue', '--', 1.5, None),
-        }
-    fog_thresh : float
-        Visibility threshold for fog definition (km).
-    start_date : str or pd.Timestamp, optional
-        Start date for the plot window. If None, uses full time range.
-    end_date : str or pd.Timestamp, optional
-        End date for the plot window. If None, uses full time range.
-    y_lim : tuple, optional
-        Y-axis limits (min, max). Default is (0.04, 15).
-    show_taf_uncertainty : bool, optional
-        Whether to show TAF uncertainty band. Default is True.
-    show_fog_threshold : bool, optional
-        Whether to show fog threshold line. Default is True.
+#     Parameters
+#     ----------
+#     df : pd.DataFrame
+#         TAF DataFrame containing 'worst_vis', 'best_vis', 'main_scenario', and 'is_valid' columns.
+#     series_dict : dict
+#         Dictionary mapping series names to tuples of (pd.Series, color, linestyle, linewidth, marker).
+#         Example: {
+#             'Observations': (vis_obs, 'crimson', '-', 2, None),
+#             'IFS Model': (vis_mod1, 'blue', '--', 1.5, None),
+#         }
+#     fog_thresh : float
+#         Visibility threshold for fog definition (km).
+#     start_date : str or pd.Timestamp, optional
+#         Start date for the plot window. If None, uses full time range.
+#     end_date : str or pd.Timestamp, optional
+#         End date for the plot window. If None, uses full time range.
+#     y_lim : tuple, optional
+#         Y-axis limits (min, max). Default is (0.04, 15).
+#     show_taf_uncertainty : bool, optional
+#         Whether to show TAF uncertainty band. Default is True.
+#     show_fog_threshold : bool, optional
+#         Whether to show fog threshold line. Default is True.
 
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        Figure object containing the log-scale visibility comparison plot.
-    ax : matplotlib.axes.Axes
-        Axes object for further customization.
-    """
-    fig, ax = plt.subplots(figsize=(21, 7))
+#     Returns
+#     -------
+#     fig : matplotlib.figure.Figure
+#         Figure object containing the log-scale visibility comparison plot.
+#     ax : matplotlib.axes.Axes
+#         Axes object for further customization.
+#     """
+#     fig, ax = plt.subplots(figsize=(21, 7))
     
-    # Time window selection
-    if start_date and end_date:
-        plot_df = df.loc[start_date:end_date]
-    else:
-        plot_df = df
+#     # Time window selection
+#     if start_date and end_date:
+#         plot_df = df.loc[start_date:end_date]
+#     else:
+#         plot_df = df
     
-    # Plot TAF uncertainty band
-    if show_taf_uncertainty and 'worst_vis' in df.columns and 'best_vis' in df.columns:
-        ax.fill_between(plot_df.index, plot_df['worst_vis'], plot_df['best_vis'], 
-                        color='lightgray', alpha=0.5, label='TAF Uncertainty (TEMPO/PROB)')
+#     # Plot TAF uncertainty band
+#     if show_taf_uncertainty and 'worst_vis' in df.columns and 'best_vis' in df.columns:
+#         ax.fill_between(plot_df.index, plot_df['worst_vis'], plot_df['best_vis'], 
+#                         color='lightgray', alpha=0.5, label='TAF Uncertainty (TEMPO/PROB)')
     
-    # Plot main scenario
-    if 'main_scenario' in df.columns:
-        ax.plot(plot_df.index, plot_df['main_scenario'], color='black', linewidth=1.2, 
-                label='TAF Main (Base/BECMG)')
+#     # Plot main scenario
+#     if 'main_scenario' in df.columns:
+#         ax.plot(plot_df.index, plot_df['main_scenario'], color='black', linewidth=1.2, 
+#                 label='TAF Main (Base/BECMG)')
     
-    # Plot each series from series_dict
-    for series_name, (series, color, linestyle, linewidth, marker) in series_dict.items():
-        aligned_series = series.reindex(df.index, method='nearest')
-        plot_series = aligned_series.loc[plot_df.index]
-        ax.plot(plot_df.index, plot_series, color=color, linestyle=linestyle, 
-                linewidth=linewidth, label=series_name, marker=marker)
+#     # Plot each series from series_dict
+#     for series_name, (series, color, linestyle, linewidth, marker) in series_dict.items():
+#         aligned_series = series.reindex(df.index, method='nearest')
+#         plot_series = aligned_series.loc[plot_df.index]
+#         ax.plot(plot_df.index, plot_series, color=color, linestyle=linestyle, 
+#                 linewidth=linewidth, label=series_name, marker=marker)
     
-    # Formatting
-    ax.set_yscale('log')
-    ax.set_ylim(*y_lim)
-    y_ticks = [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10]
-    ax.set_yticks(y_ticks)
-    ax.set_yticklabels([str(t) for t in y_ticks])
+#     # Formatting
+#     ax.set_yscale('log')
+#     ax.set_ylim(*y_lim)
+#     y_ticks = [0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10]
+#     ax.set_yticks(y_ticks)
+#     ax.set_yticklabels([str(t) for t in y_ticks])
     
-    if show_fog_threshold:
-        ax.axhline(y=fog_thresh, color='red', linestyle=':', alpha=0.5, label='Fog Threshold (0.8 km)')
+#     if show_fog_threshold:
+#         ax.axhline(y=fog_thresh, color='red', linestyle=':', alpha=0.5, label='Fog Threshold (0.8 km)')
     
-    ax.set_ylabel('Visibility [km] (Log Scale)')
-    ax.grid(True, which='both', linestyle='--', alpha=0.4)
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%d %b\n%H:%M'))
+#     ax.set_ylabel('Visibility [km] (Log Scale)')
+#     ax.grid(True, which='both', linestyle='--', alpha=0.4)
+#     ax.xaxis.set_major_formatter(mdates.DateFormatter('%d %b\n%H:%M'))
     
-    # Highlight invalid TAF periods
-    if 'is_valid' in df.columns:
-        ax.fill_between(plot_df.index, 0, 1, where=~plot_df['is_valid'], 
-                        color='yellow', alpha=0.1, transform=ax.get_xaxis_transform(), label='No TAF')
+#     # Highlight invalid TAF periods
+#     if 'is_valid' in df.columns:
+#         ax.fill_between(plot_df.index, 0, 1, where=~plot_df['is_valid'], 
+#                         color='yellow', alpha=0.1, transform=ax.get_xaxis_transform(), label='No TAF')
 
-    ax.legend(loc='lower right', frameon=True, fontsize='small', ncol=2)
-    plt.tight_layout()
-    return fig, ax
+#     ax.legend(loc='lower right', frameon=True, fontsize='small', ncol=2)
+#     plt.tight_layout()
+#     return fig, ax
 
 
-def plot_multi_period_performance(results_list, period_names, model_style_map, higher_than_fog_thresh):
-    """
-    Generates a 2x2 performance diagram comparing models and dual forecaster thresholds 
-    across multiple time periods, using both 5-min and 15-min observations.
+# def plot_multi_period_performance(results_list, period_names, model_style_map, higher_than_fog_thresh):
+#     """
+#     Generates a 2x2 performance diagram comparing models and dual forecaster thresholds 
+#     across multiple time periods, using both 5-min and 15-min observations.
 
-    Parameters
-    ----------
-    results_list : list of dict
-        List containing dictionaries of metrics for each period.
-    period_names : list of str
-        Titles for each subplot (e.g., ['Period 1', 'Period 2', ...]).
-    model_style_map : dict
-        Mapping of model names to their styling colors.
-    higher_than_fog_thresh : bool
-        Flag indicating whether to evaluate higher-than-fog threshold.
+#     Parameters
+#     ----------
+#     results_list : list of dict
+#         List containing dictionaries of metrics for each period.
+#     period_names : list of str
+#         Titles for each subplot (e.g., ['Period 1', 'Period 2', ...]).
+#     model_style_map : dict
+#         Mapping of model names to their styling colors.
+#     higher_than_fog_thresh : bool
+#         Flag indicating whether to evaluate higher-than-fog threshold.
 
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-        Figure object containing the performance diagram.
-    axs : matplotlib.axes.Axes
-        Axes object for further customization.
-    """
+#     Returns
+#     -------
+#     fig : matplotlib.figure.Figure
+#         Figure object containing the performance diagram.
+#     axs : matplotlib.axes.Axes
+#         Axes object for further customization.
+#     """
 
-    # Create markers for different data halves
-    my_marker_1 = get_text_marker("1")
-    my_marker_2 = get_text_marker("2")
+#     # Create markers for different data halves
+#     my_marker_1 = get_text_marker("1")
+#     my_marker_2 = get_text_marker("2")
 
-    # 1. Setup Data Meshgrids for Background CSI
-    x = np.linspace(0.001, 1, 100)
-    y = np.linspace(0.001, 1, 100)
-    SR_grid, POD_grid = np.meshgrid(x, y)
-    CSI = 1 / (1/SR_grid + 1/POD_grid - 1)
-    grid_data = (SR_grid, POD_grid, CSI)
+#     # 1. Setup Data Meshgrids for Background CSI
+#     x = np.linspace(0.001, 1, 100)
+#     y = np.linspace(0.001, 1, 100)
+#     SR_grid, POD_grid = np.meshgrid(x, y)
+#     CSI = 1 / (1/SR_grid + 1/POD_grid - 1)
+#     grid_data = (SR_grid, POD_grid, CSI)
 
-    fig, axs = plt.subplots(2, 2, figsize=(16, 14))
-    axs = axs.flatten()
-    contour_mappable = None
+#     fig, axs = plt.subplots(2, 2, figsize=(16, 14))
+#     axs = axs.flatten()
+#     contour_mappable = None
 
-    # Hardcoded Inset Axis Windows Config
-    inset_configs = {
-        0: {'bounds': [0.08, 0.15, 0.50, 0.56], 'xlim': [0.75, 1.0], 'ylim': [0.8, 1.0]},
-        1: {'bounds': [0.08, 0.15, 0.70, 0.27], 'xlim': [0.2,  0.9], 'ylim': [0.8, 1.0]},
-        2: {'bounds': [0.08, 0.15, 0.45, 0.62], 'xlim': [0.85, 1.0], 'ylim': [0.7, 1.0]},
-        3: {'bounds': [0.08, 0.15, 0.35, 0.46], 'xlim': [0.8,  1.0], 'ylim': [0.9, 1.0]}
-    }
+#     # Hardcoded Inset Axis Windows Config
+#     inset_configs = {
+#         0: {'bounds': [0.08, 0.15, 0.50, 0.56], 'xlim': [0.75, 1.0], 'ylim': [0.8, 1.0]},
+#         1: {'bounds': [0.08, 0.15, 0.70, 0.27], 'xlim': [0.2,  0.9], 'ylim': [0.8, 1.0]},
+#         2: {'bounds': [0.08, 0.15, 0.45, 0.62], 'xlim': [0.85, 1.0], 'ylim': [0.7, 1.0]},
+#         3: {'bounds': [0.08, 0.15, 0.35, 0.46], 'xlim': [0.8,  1.0], 'ylim': [0.9, 1.0]}
+#     }
 
-    # Reorder layout sequence: entire period first
-    reordered_results = [results_list[-1]] + results_list[:-1]
-    reordered_periods = [period_names[-1]] + period_names[:-1]
+#     # Reorder layout sequence: entire period first
+#     reordered_results = [results_list[-1]] + results_list[:-1]
+#     reordered_periods = [period_names[-1]] + period_names[:-1]
 
-    for i, (period_data, p_name) in enumerate(zip(reordered_results, reordered_periods)):
-        ax = axs[i]
+#     for i, (period_data, p_name) in enumerate(zip(reordered_results, reordered_periods)):
+#         ax = axs[i]
 
-        # Style first subplot panel
-        if i == 0:
-            for spine in ax.spines.values():
-                spine.set_linewidth(1.8)       
-                spine.set_color('black')       
-                spine.set_zorder(10)           
+#         # Style first subplot panel
+#         if i == 0:
+#             for spine in ax.spines.values():
+#                 spine.set_linewidth(1.8)       
+#                 spine.set_color('black')       
+#                 spine.set_zorder(10)           
         
-        # Draw background
-        contour_mappable = draw_perf_background(ax, grid_data, line_w=0.8, line_alpha=0.5, contour_alpha=0.2, show_text=True)
+#         # Draw background
+#         contour_mappable = draw_perf_background(ax, grid_data, line_w=0.8, line_alpha=0.5, contour_alpha=0.2, show_text=True)
 
-        # Generate Inset Axis if requested
-        target_axs = [ax]
-        if higher_than_fog_thresh:
-            cfg = inset_configs[i]
-            ax_ins = ax.inset_axes(cfg['bounds'])
-            ax_ins.set_xlim(cfg['xlim'])
-            ax_ins.set_ylim(cfg['ylim'])
-            ax_ins.set_aspect('auto')
-            ax_ins.set_facecolor('white')
-            ax_ins.tick_params(axis='both', which='major', labelsize=6)
+#         # Generate Inset Axis if requested
+#         target_axs = [ax]
+#         if higher_than_fog_thresh:
+#             cfg = inset_configs[i]
+#             ax_ins = ax.inset_axes(cfg['bounds'])
+#             ax_ins.set_xlim(cfg['xlim'])
+#             ax_ins.set_ylim(cfg['ylim'])
+#             ax_ins.set_aspect('auto')
+#             ax_ins.set_facecolor('white')
+#             ax_ins.tick_params(axis='both', which='major', labelsize=6)
             
-            # Draw Inset Background
-            draw_perf_background(ax_ins, grid_data, line_w=0.6, line_alpha=0.3, contour_alpha=0.15, show_text=False)
-            target_axs.append(ax_ins)
+#             # Draw Inset Background
+#             draw_perf_background(ax_ins, grid_data, line_w=0.6, line_alpha=0.3, contour_alpha=0.15, show_text=False)
+#             target_axs.append(ax_ins)
 
-        # --- UNIFORM TRAJECTORY (lines) PLOTTING BLOCK ---
-        splits = period_data['splits']
+#         # --- UNIFORM TRAJECTORY (lines) PLOTTING BLOCK ---
+#         splits = period_data['splits']
         
-        # Verify all necessary sub-period slices are verified in data structures
-        if all(k in splits for k in ['Full', 'First_Half', 'Second_Half']):
-            df_full = splits['Full']
-            df_1st  = splits['First_Half']
-            df_2nd  = splits['Second_Half']
+#         # Verify all necessary sub-period slices are verified in data structures
+#         if all(k in splits for k in ['Full', 'First_Half', 'Second_Half']):
+#             df_full = splits['Full']
+#             df_1st  = splits['First_Half']
+#             df_2nd  = splits['Second_Half']
 
-            for model_name, color in model_style_map.items():
-                # Verify identity existence inside current period split metrics
-                if model_name in df_full.index and model_name in df_1st.index and model_name in df_2nd.index:
-                    row_full = df_full.loc[model_name]
-                    row_1st  = df_1st.loc[model_name]
-                    row_2nd  = df_2nd.loc[model_name]
+#             for model_name, color in model_style_map.items():
+#                 # Verify identity existence inside current period split metrics
+#                 if model_name in df_full.index and model_name in df_1st.index and model_name in df_2nd.index:
+#                     row_full = df_full.loc[model_name]
+#                     row_1st  = df_1st.loc[model_name]
+#                     row_2nd  = df_2nd.loc[model_name]
 
-                    # Parse coordinates: Success Ratio (1 - FAR) vs Probability of Detection (POD)
-                    pt_full = (1 - row_full['FAR'], row_full['POD'])
-                    pt_1st  = (1 - row_1st['FAR'],  row_1st['POD'])
-                    pt_2nd  = (1 - row_2nd['FAR'],  row_2nd['POD'])
+#                     # Parse coordinates: Success Ratio (1 - FAR) vs Probability of Detection (POD)
+#                     pt_full = (1 - row_full['FAR'], row_full['POD'])
+#                     pt_1st  = (1 - row_1st['FAR'],  row_1st['POD'])
+#                     pt_2nd  = (1 - row_2nd['FAR'],  row_2nd['POD'])
 
-                    # Set marker logic based on model type
-                    mrkr = "*" if model_name == "Persist_10min" else "o"
-                    sz = 180 if model_name == "Persist_10min" else 120
+#                     # Set marker logic based on model type
+#                     mrkr = "*" if model_name == "Persist_10min" else "o"
+#                     sz = 180 if model_name == "Persist_10min" else 120
 
-                    for t_ax in target_axs:
-                        # First Half 
-                        t_ax.scatter(*pt_1st, s=sz, c=color, marker=my_marker_1, edgecolor='black', zorder=4, alpha=0.7)
+#                     for t_ax in target_axs:
+#                         # First Half 
+#                         t_ax.scatter(*pt_1st, s=sz, c=color, marker=my_marker_1, edgecolor='black', zorder=4, alpha=0.7)
                         
-                        # Second Half  
-                        t_ax.scatter(*pt_2nd, s=sz, c=color, marker=my_marker_2, edgecolor='black', zorder=4, alpha=0.3)
+#                         # Second Half  
+#                         t_ax.scatter(*pt_2nd, s=sz, c=color, marker=my_marker_2, edgecolor='black', zorder=4, alpha=0.3)
                         
-                        # Full Window Frame 
-                        t_ax.scatter(*pt_full, s=sz, c=color, marker=mrkr, edgecolor='black', zorder=5)
+#                         # Full Window Frame 
+#                         t_ax.scatter(*pt_full, s=sz, c=color, marker=mrkr, edgecolor='black', zorder=5)
 
-                        # Draw the evolution trajectory connection line
-                        t_ax.plot([pt_1st[0], pt_full[0], pt_2nd[0]], [pt_1st[1], pt_full[1], pt_2nd[1]], 
-                                  color=color, linestyle='-', linewidth=1.2, alpha=0.4, zorder=3)
+#                         # Draw the evolution trajectory connection line
+#                         t_ax.plot([pt_1st[0], pt_full[0], pt_2nd[0]], [pt_1st[1], pt_full[1], pt_2nd[1]], 
+#                                   color=color, linestyle='-', linewidth=1.2, alpha=0.4, zorder=3)
 
-        ax.set_title(p_name, pad=20, fontweight='bold')
-        ax.text(0.05, 0.95, f"{chr(97+i)})", transform=ax.transAxes, fontsize=14, fontweight='bold', 
-                va='top', bbox=dict(boxstyle="square,pad=0.3", facecolor="white", alpha=1))
-        ax.set_xlim(0, 1); ax.set_ylim(0, 1)
-        ax.grid(True, linestyle=':', alpha=0.4)
+#         ax.set_title(p_name, pad=20, fontweight='bold')
+#         ax.text(0.05, 0.95, f"{chr(97+i)})", transform=ax.transAxes, fontsize=14, fontweight='bold', 
+#                 va='top', bbox=dict(boxstyle="square,pad=0.3", facecolor="white", alpha=1))
+#         ax.set_xlim(0, 1); ax.set_ylim(0, 1)
+#         ax.grid(True, linestyle=':', alpha=0.4)
 
-    axs[2].set_xlabel('Success Ratio (1 - FAR)', fontsize=14)
-    axs[3].set_xlabel('Success Ratio (1 - FAR)', fontsize=14)
-    axs[0].set_ylabel('Probability of Detection (POD)', fontsize=14)
-    axs[2].set_ylabel('Probability of Detection (POD)', fontsize=14)
+#     axs[2].set_xlabel('Success Ratio (1 - FAR)', fontsize=14)
+#     axs[3].set_xlabel('Success Ratio (1 - FAR)', fontsize=14)
+#     axs[0].set_ylabel('Probability of Detection (POD)', fontsize=14)
+#     axs[2].set_ylabel('Probability of Detection (POD)', fontsize=14)
 
-    legend_elements = []
-        # Track models and scenario colors
-    for l, c in model_style_map.items():
-        mrkr = '*' if l == "Persist_10min" else 'o'
-        legend_elements.append(Line2D([0], [0], color="none", markerfacecolor=c, label=l, marker=mrkr, markeredgecolor='black', markersize=10))
+#     legend_elements = []
+#         # Track models and scenario colors
+#     for l, c in model_style_map.items():
+#         mrkr = '*' if l == "Persist_10min" else 'o'
+#         legend_elements.append(Line2D([0], [0], color="none", markerfacecolor=c, label=l, marker=mrkr, markeredgecolor='black', markersize=10))
     
-    legend_elements.extend([
-        Line2D([0], [0], color='none', marker=my_marker_1, markerfacecolor='gray', markeredgecolor='black', label='First Half Window', markersize=12, alpha=0.7),
-        Line2D([0], [0], color='none', marker='o', markerfacecolor='gray', markeredgecolor='black', label='Full Window Metric', markersize=10),
-        Line2D([0], [0], color='none', marker=my_marker_2, markerfacecolor='gray', markeredgecolor='black', label='Second Half Window', markersize=12, alpha=0.3),
-        Line2D([0], [0], color='black', linestyle='-', linewidth=1.2, alpha=0.4, label='Lead-Time Trajectory')
-    ])
+#     legend_elements.extend([
+#         Line2D([0], [0], color='none', marker=my_marker_1, markerfacecolor='gray', markeredgecolor='black', label='First Half Window', markersize=12, alpha=0.7),
+#         Line2D([0], [0], color='none', marker='o', markerfacecolor='gray', markeredgecolor='black', label='Full Window Metric', markersize=10),
+#         Line2D([0], [0], color='none', marker=my_marker_2, markerfacecolor='gray', markeredgecolor='black', label='Second Half Window', markersize=12, alpha=0.3),
+#         Line2D([0], [0], color='black', linestyle='-', linewidth=1.2, alpha=0.4, label='Lead-Time Trajectory')
+#     ])
     
-    axs[0].legend(handles=legend_elements, frameon=True, loc='lower right', prop={'size': 7}, ncols=3)
-
-    # 4. Axes Colorbars Setup
-    for idx in [1, 3]:
-        divider = make_axes_locatable(axs[idx])
-        cax = divider.append_axes("right", size="5%", pad=0.6)
-        fig.colorbar(contour_mappable, cax=cax).set_label('CSI', fontsize=10)
-
-    plt.tight_layout()
-    return fig, axs
-
-def compute_seeps_visibility(obs, forecasts, thresholds_km = (0.8, 5.0),  climatology_obs = None):
-    """
-    Comptue a three-category SEEPS score for visibility.
-
-    Visibility categories
-    ---------------------
-    Category 1 : V <= threshold_1
-    Category 2 : threshold_1 < V <= threshold_2
-    Category 3 : V > threshold_2
-
-    Parameters
-    ----------
-    obs : pd.Series
-        Observed visibility in km.
-
-    forecasts : dict[str, pd.Series]
-        Dictionary containing deterministic visibility forecasts in km.
-
-    thresholds_km : tuple(float, float), optional
-        Lower and upper visibility thresholds in km.
-        Default is (0.8, 2.0).
-
-    climatology_obs : pd.Series, optional
-        Observations used to estimate the climatological probabilities
-        p1, p2 and p3 entering the SEEPS scoring matrix as in Rodwell et al.'s paper.
-
-        If None, "obs" itself is used.
-
-        For comparisons between multiple verification periods, it is
-        preferable to pass the SAME climatology_obs to all calls so that
-        every period uses the same SEEPS scoring matrix.
-
-    Returns
-    -------
-    results : pd.DataFrame
-        One row per forecast, with columns:
-        - SEEPS_error
-        - SEEPS_skill
-        - N
-        - p1
-        - p2
-        - p3
-    score_matrix : np.ndarray, shape (3, 3)
-        SEEPS error matrix. Rows correspond to forecast categories and
-        columns to observed categories.
-    category_probabilities : pd.Series
-        Climatological probabilities p1,p2 and p3.
-    """
-
-    # Converts obs to pandas series
-    if not isinstance(obs, pd.Series):
-        obs = pd.Series(obs)
-    if climatology_obs is None:
-        climatology_obs = obs.dropna().astype(float)
-
-    # Get and check thresholds
-    thresh_1, thresh_2 = thresholds_km
-    if thresh_1>=thresh_2:
-        raise ValueError(f"Expected threshold_1 < threshold_2, received {thresh_1} >= {thresh_2}.")
-
-    # Estimate climatological category probabilities
-    p1 = np.mean(climatology_obs <= thresh_1)
-    p2 = np.mean((climatology_obs > thresh_1) & (climatology_obs <= thresh_2))
-    p3 = np.mean(climatology_obs > thresh_2)
-
-    probabilities = pd.Series(
-        {
-            "p1": p1,
-            "p2": p2,
-            "p3": p3,
-        },
-        name="climatological_probability",
-    )
-
-    # Eq. (15) from Rodwell et al. contains 1/p1, 1/(1-p1), 1/p3, 1/(1-p3).
-    # So add check for matrix singularity
-    if min(p1, p3, 1.0 - p1, 1.0 - p3) < 0.05:
-        print("One SEEPS climatological probability is close to a ")
-        print("singular limit. Off-diagonal penalties may become very large. ")
-        print(f"p1={p1:.3f}, p2={p2:.3f}, p3={p3:.3f}")
-
-    # Then compute score matrix itself
-    # Rows    -> forecast category
-    # Columns -> observed category
-    score_matrix = 0.5 * np.array(
-        [
-            [
-                0.0,
-                1.0 / (1.0 - p1),
-                1.0 / p3 + 1.0 / (1.0 - p1),
-            ],
-            [
-                1.0 / p1,
-                0.0,
-                1.0 / p3,
-            ],
-            [
-                1.0 / p1 + 1.0 / (1.0 - p3),
-                1.0 / (1.0 - p3),
-                0.0,
-            ],
-        ],  # it's a cost-error (or "penalty") matrix
-        dtype=float,
-    )
-
-    # Internal category mapping
-    #     0 -> low visibility
-    #     1 -> intermediate visibility
-    #     2 -> high visibility
-    def visibility_category(values):
-        return np.select(
-            [
-                values <= thresh_1,
-                (values > thresh_1) & (values <= thresh_2),
-                values > thresh_2,
-            ],
-            [
-                0,
-                1,
-                2,
-            ],
-            default=-1,
-        ).astype(int)
-
-    # Actual scoritng of the different forecasts
-    results = {}
-    for model_name, forecast in forecasts.items():
-        if not isinstance(forecast, pd.Series):
-            forecast = pd.Series(forecast, index=obs.index)
-
-        # Explicit timestamp alignment
-        comparison = pd.concat(
-            [
-                obs.rename("obs"),  # change names for columns in the resulting dataframe
-                forecast.rename("forecast"),
-            ],
-            axis=1, # match by putting them side by side in two columns, matching indices
-            join="inner",
-        ).dropna()  # 2-column DataFrame containing (valid) temporally-matched forecast-observation pairs
-
-        n_valid = len(comparison)
-
-        obs_category = visibility_category(comparison["obs"].values)
-        forecast_category = visibility_category(comparison["forecast"].values)
-
-        # score_matrix.shape       = (3, 3)
-        # forecast_category.shape  = (N,)
-        # obs_category.shape      = (N,)
-        # individual_errors.shape  = (N,)
-        individual_errors = score_matrix[
-            forecast_category,
-            obs_category,
-        ]  # for every N verification time, advanced indexing gives one element of the 3x3 SEEPS matrix
-
-        seeps_error = np.mean(individual_errors)
-        seeps_skill = 1.0 - seeps_error
-
-        results[model_name] = {
-            "SEEPS_error": seeps_error,
-            "SEEPS_skill": seeps_skill,
-            "N": n_valid,
-            "p1": p1,
-            "p2": p2,
-            "p3": p3,
-        }
-
-    results = pd.DataFrame.from_dict(results, orient="index")
-
-    return results, score_matrix, probabilities
-
-
-def plot_seeps_skill(
-    skill_table,
-    thresholds_km=(0.8, 2.0),
-    model_style_map=None,
-    constant_models=None,
-    title=None,
-    highlight_period="Entire Cruise",
-    periods_to_plot=None
-):
-    """
-    Plot multi-model SEEPS skill scores across verification periods.
-
-    Parameters
-    ----------
-    skill_table : pd.DataFrame
-        Rows are verification periods and columns are forecast/model names.
-        Values are SEEPS skill scores.
-
-    thresholds_km : tuple(float, float), optional
-        Visibility category thresholds in km.
-
-    model_style_map : dict, optional
-        Mapping ``model_name -> matplotlib color``.
-
-    constant_models : iterable[str], optional
-        Names of constant-category baseline forecasts. These receive
-        hatch patterns and black edges so that they are visually distinct
-        from the physical forecast systems.
-
-    title : str, optional
-        Figure title.
-
-    highlight_period : str or None, optional
-        Name of the period to shade in the background.
-    
-    periods_to_plot : str or None, optional
-        Which periods to plot. If None, plot all
-
-    Returns
-    -------
-    fig : matplotlib.figure.Figure
-    ax : matplotlib.axes.Axes
-    """
-
-    if not isinstance(skill_table, pd.DataFrame):
-        raise TypeError("skill_table must be a pandas DataFrame.")
-
-    if skill_table.empty:
-        raise ValueError("skill_table is empty.")
-
-    # Optionally, only plot certain periods
-    if periods_to_plot is not None:
-        missing_periods = [
-            period
-            for period in periods_to_plot
-            if period not in skill_table.index
-        ]
-        if missing_periods:
-            raise ValueError(
-                "Requested periods are not present in skill_table: "
-                f"{missing_periods}"
-            )
-        skill_table = skill_table.loc[periods_to_plot]
-
-    thresh_1, thresh_2 = thresholds_km
-
-    model_style_map = (
-        {} if model_style_map is None else model_style_map.copy()
-    )
-
-    constant_models = (
-        set() if constant_models is None else set(constant_models)
-    )
-
-    period_names = list(skill_table.index)
-    model_names = list(skill_table.columns)
-
-    n_periods = len(period_names)
-    n_models = len(model_names)
-
-    fig, ax = plt.subplots(figsize=(14, 7))
-
-    group_x = np.arange(n_periods)
-
-    total_group_width = 0.82
-    bar_width = total_group_width / max(n_models, 1)
-
-    offsets = (
-        np.arange(n_models) - (n_models - 1) / 2.0
-    ) * bar_width
-
-    hatch_cycle = ["///", "\\\\\\", "xx", "..", "++"]
-    constant_counter = 0
-
-    # -------------------------------------------------------------
-    # Background highlight for requested period
-    # -------------------------------------------------------------
-    if (
-        highlight_period is not None
-        and highlight_period in period_names
-    ):
-        idx = period_names.index(highlight_period)
-
-        ax.axvspan(
-            idx - 0.5,
-            idx + 0.5,
-            color="yellow",
-            alpha=0.18,
-            zorder=0,
-        )
-
-    # -------------------------------------------------------------
-    # Bars
-    # -------------------------------------------------------------
-    for model_idx, model_name in enumerate(model_names):
-
-        values = skill_table[model_name].values.astype(float)
-
-        color = model_style_map.get(model_name, None)
-
-        bar_kwargs = {
-            "x": group_x + offsets[model_idx],
-            "height": values,
-            "width": bar_width * 0.92,
-            "label": model_name,
-            "zorder": 3,
-        }
-
-        if color is not None:
-            bar_kwargs["color"] = color
-
-        if model_name in constant_models:
-            bar_kwargs["edgecolor"] = "black"
-            bar_kwargs["linewidth"] = 1.2
-            bar_kwargs["hatch"] = hatch_cycle[
-                constant_counter % len(hatch_cycle)
-            ]
-            constant_counter += 1
-
-        ax.bar(**bar_kwargs)
-
-    # -------------------------------------------------------------
-    # Reference scores
-    # -------------------------------------------------------------
-    ax.axhline(
-        0.0,
-        color="crimson",
-        linestyle="--",
-        linewidth=1.6,
-        zorder=2,
-    )
-
-    ax.axhline(
-        1.0,
-        color="black",
-        linestyle="-",
-        linewidth=1.3,
-        label="Perfect Forecast (Skill = 1)",
-        zorder=2,
-    )
-
-    # -------------------------------------------------------------
-    # Axis limits
-    #
-    # SEEPS skill has an upper bound of 1 but is not bounded at -1.
-    # -------------------------------------------------------------
-    finite_values = skill_table.to_numpy(dtype=float)
-    finite_values = finite_values[np.isfinite(finite_values)]
-
-    if len(finite_values) > 0:
-        data_min = finite_values.min()
-    else:
-        data_min = 0.0
-
-    lower_limit = min(-0.1, data_min - 0.10)
-    upper_limit = 1.10
-
-    ax.set_ylim(lower_limit, upper_limit)
-
-    # -------------------------------------------------------------
-    # Labels and formatting
-    # -------------------------------------------------------------
-    ax.set_xticks(group_x)
-    ax.set_xticklabels(
-        period_names,
-        fontsize=11,
-        fontweight="bold",
-    )
-
-    ax.set_ylabel(
-        "SEEPS Skill Score",
-        fontsize=12,
-        fontweight="bold",
-    )
-
-    ax.set_xlabel(
-        "Verification Evaluation Window",
-        fontsize=12,
-        fontweight="bold",
-    )
-
-    if title is None:
-        title = (
-            "Multi-Model Visibility SEEPS Skill Score "
-            "Across Operational Windows"
-        )
-
-    ax.set_title(
-        title,
-        fontsize=15,
-        fontweight="bold",
-        pad=14,
-    )
-
-    ax.grid(
-        axis="y",
-        linestyle=":",
-        alpha=0.35,
-        zorder=1,
-    )
-
-    ax.text(
-        0.02,
-        0.95,
-        "↑ Higher Value (Higher Skill)",
-        transform=ax.transAxes,
-        fontsize=10,
-        fontstyle="italic",
-        va="top",
-    )
-
-    thresholds_text = (
-        "Visibility thresholds:\n"
-        f"{thresh_1 * 1000:.0f} m, {thresh_2 * 1000:.0f} m"
-    )
-
-    ax.text(
-        1.03,
-        0.38,
-        thresholds_text,
-        transform=ax.transAxes,
-        fontsize=13,
-        va="center",
-        ha="left",
-    )
-
-    ax.legend(
-        loc="upper left",
-        bbox_to_anchor=(1.02, 1.0),
-        frameon=True,
-        title="Models / Frameworks",
-    )
-
-    fig.subplots_adjust(right=0.76)
-
-    return fig, ax
-# %%
+#     axs[0].legend(handles=legend_elements, frameon=True, loc='lower right', prop={'size': 7}, ncols=3)
+
+#     # 4. Axes Colorbars Setup
+#     for idx in [1, 3]:
+#         divider = make_axes_locatable(axs[idx])
+#         cax = divider.append_axes("right", size="5%", pad=0.6)
+#         fig.colorbar(contour_mappable, cax=cax).set_label('CSI', fontsize=10)
+
+#     plt.tight_layout()
+#     return fig, axs
