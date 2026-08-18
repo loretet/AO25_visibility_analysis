@@ -11,7 +11,6 @@ import numpy as np
 from metar_taf_parser.parser.parser import TAFParser
 from sklearn.calibration import calibration_curve
 import seaborn as sns
-from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.lines import Line2D
 from matplotlib.ticker import MaxNLocator
 from matplotlib.textpath import TextPath
