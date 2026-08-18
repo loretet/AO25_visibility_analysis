@@ -1795,7 +1795,6 @@ def plot_seeps_skill(
         color="crimson",
         linestyle="--",
         linewidth=1.6,
-        label="Climatology / Unskilled (Skill = 0)",
         zorder=2,
     )
 
